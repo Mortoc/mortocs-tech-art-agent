@@ -75,11 +75,11 @@ jobs:
       - name: Build the extension and its repository index with Blender's own tooling
         run: |
           sudo snap install blender --classic
-          ./scripts/build_blender.py --blender "$(command -v blender || echo /snap/bin/blender)" --out build/blender-repo
+          python3 scripts/build_blender.py --blender "$(command -v blender || echo /snap/bin/blender)" --out build/blender-repo
           test -f build/blender-repo/index.json
       - name: The committed repository index is up to date
         run: |
-          ./scripts/build_blender.py --blender /snap/bin/blender --out build/check
+          python3 scripts/build_blender.py --blender /snap/bin/blender --out build/check
           diff <(python3 -c "import json;d=json.load(open('build/check/index.json'))['data'][0];print(d['version'],d['id'])") \
                <(python3 -c "import json;d=json.load(open('docs/blender/index.json'))['data'][0];print(d['version'],d['id'])")
 

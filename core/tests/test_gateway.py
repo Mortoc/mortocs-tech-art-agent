@@ -48,10 +48,10 @@ def test_the_menu_offers_gateway_models_only_when_there_is_a_gateway_key():
     assert gateway_models(gateway, {}) == []
     assert not has_gateway_key({})
     listed = gateway_models(gateway, {"PYDANTIC_AI_GATEWAY_API_KEY": FAKE_KEY})
-    assert [(m.provider, m.id) for m in listed][0] == ("gateway", "chat@openrouter/deepseek/deepseek-v4.1-flash-1017")
+    assert [(m.provider, m.id) for m in listed][0] == ("gateway", "anthropic/claude-haiku-5-5")  # Haiku first, for now
     from tech_art_core.review import family_of
 
-    assert {family_of(f"gateway/{m.id}") for m in listed} == {"deepseek", "google", "openai", "anthropic"}  # four families on offer
+    assert {family_of(f"gateway/{m.id}") for m in listed} == {"google", "openai", "anthropic"}  # three families on offer; DeepSeek joins when its endpoint exists
     assert all(m.vision for m in listed)
 
 
@@ -63,7 +63,7 @@ async def test_the_core_lists_only_what_this_machine_can_use(tmp_path, monkeypat
     monkeypatch.setenv("PYDANTIC_AI_GATEWAY_API_KEY", FAKE_KEY)
     assert {m.provider for m in await core.all_models()} == {"gateway"}
     await core.ensure_default_model()
-    assert core.new_session_model == "gateway/chat@openrouter/deepseek/deepseek-v4.1-flash-1017"  # the first configured default: deliberately not Claude
+    assert core.new_session_model == "gateway/anthropic/claude-haiku-5-5"  # everything runs on Haiku for now
 
 
 def test_missing_and_rejected_keys_name_the_right_variable():
@@ -184,3 +184,12 @@ def test_a_refused_model_behind_a_custom_endpoint_points_at_the_endpoint_and_the
     assert action is None and "'openrouter'" in message and "Require pricing data" in message and "spend limits" in message
     plain, _ = describe(ai.ModelHTTPError(404, "m", {}), provider="gateway", model_key="gateway/openai/gpt-9")
     assert "pricing data" in plain and "custom endpoint" not in plain
+
+
+def test_bedrock_models_are_judged_by_their_maker_not_by_bedrock():
+    from tech_art_core.review import family_of
+
+    assert family_of("gateway/bedrock/us.deepseek.r1-v1:0") == "deepseek"
+    assert family_of("gateway/bedrock/eu.anthropic.claude-haiku-4-5-20251001-v1:0") == "anthropic"
+    assert family_of("gateway/bedrock/amazon.nova-micro-v1:0") == "amazon"
+    assert family_of("gateway/bedrock/meta.llama3-70b-instruct-v1:0") == "meta"

@@ -94,7 +94,7 @@ async def probe_model(key: str, settings: Any, build: Callable[[str], Any], quic
         return probe  # no point asking a model that cannot answer to look at an image
 
     async def image():
-        content = ["Answer with one word, the colour of the LEFT half of this image.", BinaryContent(data=TEST_PNG, media_type="image/png")]
+        content = ["This image is made of two solid colours. Name both.", BinaryContent(data=TEST_PNG, media_type="image/png")]
         return await Agent(model).run(content)
 
     calls: list[tuple[int, int]] = []
@@ -112,7 +112,7 @@ async def probe_model(key: str, settings: Any, build: Callable[[str], Any], quic
 
     # The two checks are independent, so they run side by side: the slower one (a tool call is two model round trips) sets the pace.
     (probe.image, image_result), (probe.tools, tools_result) = await asyncio.gather(
-        _timed(lambda r: "red" in str(r.output).lower(), image, key, settings),
+        _timed(lambda r: all(c in str(r.output).lower() for c in ("red", "blue")), image, key, settings),
         _timed(lambda r: calls == [(417, 268)] and "685" in str(r.output), tools, key, settings),
     )
     for result in (image_result, tools_result):

@@ -46,7 +46,8 @@ what has a key or a running server. The one machine-wide secret is `PYDANTIC_AI_
 
 ## Second opinion
 
-The working agent defaults to DeepSeek's newest Flash (`deepseek-v4.1-flash-1017`, through the gateway's OpenRouter endpoint, pinned to the dated
+**Currently everything runs on Haiku 5.5** (agent, reviewer, naming) so that nothing depends on the OpenRouter endpoint; the
+intent below stays the plan. The working agent is meant to default to DeepSeek's newest Flash (`deepseek-v4.1-flash-1017`, through the gateway's OpenRouter endpoint, pinned to the dated
 snapshot rather than the floating alias so that tuning docs and techniques compares like with like). A modest model is
 the point: where it stumbles, our documentation or technique was vague. The gateway's GPT-6.1 Sol and Claude stay as
 fallbacks, and the project sees how a different architecture reads the same prompts. On request (or every N messages), the

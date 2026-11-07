@@ -145,3 +145,23 @@ def test_the_installer_turns_on_the_public_repo_commit_hook(tmp_path: Path):
     assert m.enable_git_hooks(tmp_path) is True
     out = subprocess.run(["git", "config", "core.hooksPath"], cwd=tmp_path, capture_output=True, text=True).stdout.strip()
     assert out == ".githooks"
+
+
+def test_the_blender_extension_is_installed_from_the_checkouts_zip_so_a_branch_can_be_tested_before_it_is_merged(tmp_path: Path):
+    m = load()
+    (tmp_path / "docs" / "blender").mkdir(parents=True)
+    (tmp_path / "docs" / "blender" / "tech_art_agent-0.1.0.zip").write_bytes(b"zip")
+    (tmp_path / "docs" / "blender" / "tech_art_agent-0.2.0.zip").write_bytes(b"zip")
+    seen = {}
+
+    def runner(argv):
+        seen["argv"] = argv
+        return subprocess.CompletedProcess(argv, 0)
+
+    installed = m.install_blender_extension(tmp_path, blender="/usr/bin/blender", runner=runner)
+    assert installed.name == "tech_art_agent-0.2.0.zip"  # the newest build
+    argv = seen["argv"]
+    assert argv[:2] == ["/usr/bin/blender", "--background"] and argv[2:5] == ["--command", "extension", "install-file"]
+    assert "--enable" in argv and argv[argv.index("--repo") + 1] == "user_default" and argv[-1].endswith("tech_art_agent-0.2.0.zip")
+    assert m.install_blender_extension(tmp_path, blender="/usr/bin/blender", runner=lambda a: subprocess.CompletedProcess(a, 1)) is None  # a failed install is reported, not hidden
+    assert m.install_blender_extension(tmp_path / "empty", blender="/usr/bin/blender", runner=runner) is None  # no zip: skipped

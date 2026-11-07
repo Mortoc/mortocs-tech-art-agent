@@ -21,13 +21,13 @@ passthrough=""
 for arg in "$@"; do
   case $arg in
     --check) mode=check ;;
-    --uninstall | --houdini | --blender) passthrough="$passthrough $arg" ;;
+    --uninstall | --houdini | --blender | --skip-ui) passthrough="$passthrough $arg" ;;
     -h | --help)
       sed -n '2,8s/^# \{0,1\}//p' "$0" 2>/dev/null || echo "usage: ./install [--houdini] [--blender] [--uninstall | --check]"
       exit 0
       ;;
     *)
-      echo "install: unknown option '$arg'. Usage: ./install [--houdini] [--blender] [--uninstall | --check]" >&2
+      echo "install: unknown option '$arg'. Usage: ./install [--houdini] [--blender] [--skip-ui] [--uninstall | --check]" >&2
       exit 2
       ;;
   esac

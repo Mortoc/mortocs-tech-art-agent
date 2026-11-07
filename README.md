@@ -28,12 +28,14 @@ cd core && uv run tech-art-core        # 127.0.0.1:9100, state in ~/.tech-art-ag
   [docs/help.md](docs/help.md). The gateway has no model-list endpoint, so the model menu is `gateway.models` in settings;
   **`tech-art-core probe`** tries each one with a tiny request (text, an image, a tool call) and prints what works.
   Local OpenAI-compatible servers (Ollama and friends) work with no internet through `providers`.
-  The working agent defaults to DeepSeek's newest Flash (`deepseek-v4.1-flash-1017`, a dated snapshot, through the
-  gateway's OpenRouter endpoint: it sees images, has a 1M context and costs a fraction of a frontier model), deliberately
-  not Claude and deliberately modest: a weaker model with a different architecture exposes where our documentation and
-  Houdini techniques are vague, which is the point. GPT-6.1 and Claude on the gateway are the fallbacks.
+  **For now everything runs on Claude Haiku 5.5 through the gateway** (the agent, the reviewer, naming), so nothing
+  needs the OpenRouter connection yet. The intended working agent is DeepSeek's newest Flash
+  (`deepseek-v4.1-flash-1017`, a dated snapshot, through the gateway's OpenRouter endpoint: it sees images, has a 1M
+  context and costs a fraction of a frontier model): deliberately not Claude and deliberately modest, because a weaker model
+  with a different architecture exposes where our documentation and Houdini techniques are vague. Setting that up is one
+  settings change once the endpoint exists (*Setting up the gateway* in [docs/help.md](docs/help.md)).
 - **Second opinion.** **check understanding** in the pane's toolbar sends the conversation (what you asked, what the agent
-  said and did) to a model from a *different family* than the agent (Gemini by default) and shows where the two of you
+  said and did) to a model from a *different family* than the agent (Gemini when `review.model` is unset; Haiku, the weaker same-family check, for now) and shows where the two of you
   may have meant different things: an ambiguity resolved silently, an unconfirmed assumption, scope drift, a term read in
   the wrong app's sense. Each finding has the one question that would settle it, with an *answer this* button. Set
   `review.auto` to run it by itself every `review.every` messages; `review.model` pins the reviewer.

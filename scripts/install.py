@@ -10,6 +10,7 @@ Run it through ./install, which checks the requirements first.
     ./install                # everything that is present on this machine
     ./install --houdini      # only Houdini
     ./install --blender      # only Blender
+    ./install --skip-ui      # do not build the pane UI
     ./install --uninstall    # remove what this script wrote
 
 Never overwrites a Houdini package file it did not write itself. On NixOS use the flake's module instead.
@@ -143,6 +144,23 @@ def install_bridge(packages_dir: Path, run: Runner = run_output) -> Path:
     return target
 
 
+def install_blender_extension(root: Path, blender: str | None = None, runner=subprocess.run) -> Path | None:
+    """Install (or update) the extension from the zip built into this checkout, and enable it.
+
+    The remote repository is served by GitHub Pages from `main`, so it only has an extension once a change is merged. Installing
+    from the zip works on any branch and offline; once the repository is added in Blender, its updates take over.
+    Returns the zip that was installed, or None when it could not be."""
+    blender = blender or shutil.which("blender")
+    zips = sorted((root / "docs" / "blender").glob("tech_art_agent-*.zip"))
+    if blender is None or not zips:
+        print("[install] Blender or docs/blender/*.zip not found: skipping the extension (build it with scripts/build_blender.py)")
+        return None
+    zip_file = zips[-1]
+    argv = [blender, "--background", "--command", "extension", "install-file", "--repo", "user_default", "--enable", str(zip_file)]
+    print(f"[install] {' '.join(argv[:1] + argv[3:5])} {zip_file.name} (user_default repository)")
+    return zip_file if runner(argv).returncode == 0 else None
+
+
 def enable_git_hooks(root: Path) -> bool:
     """Point this checkout's git at .githooks, whose pre-commit refuses secrets and company data (the repo is public)."""
     if not (root / ".git").exists() or not (root / ".githooks" / "pre-commit").exists():
@@ -167,6 +185,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--uninstall", action="store_true")
     parser.add_argument("--houdini", action="store_true")
     parser.add_argument("--blender", action="store_true")
+    parser.add_argument("--skip-ui", action="store_true", help="do not build the pane UI (no Node here, or it is already built)")
     args = parser.parse_args(argv)
     chosen = args.houdini or args.blender
     want_houdini = args.houdini or (not chosen and shutil.which("hython") is not None)
@@ -181,7 +200,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if enable_git_hooks(ROOT):
         print("[install] enabled the pre-commit secrets check (git config core.hooksPath .githooks)")
-    build_ui(ROOT)
+    if not args.skip_ui:
+        build_ui(ROOT)
     uv, uvx = shutil.which("uv") or "uv", shutil.which("uvx") or "uvx"
     print(f"[install] wrote {write_install_record(state_dir(), ROOT, uv, uvx)}")
     if want_houdini:
@@ -189,10 +209,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[install] wrote {install_bridge(packages)}")
         print(f"[install] wrote {write_package(packages, ROOT)}")
     if want_blender:
+        if install_blender_extension(ROOT) is None:
+            print("[install] could not install the Tech Art Agent extension into Blender; see above.")
         print("[install] uvx mcp-for-blender install-addon")
         if subprocess.run([uvx, "mcp-for-blender", "install-addon"]).returncode != 0:
             print("[install] could not install the mcp-for-blender add-on; run `uvx mcp-for-blender setup` yourself.")
-        print(f"[install] Blender: Preferences > Get Extensions > Repositories > + > Add Remote Repository:\n[install]   {BLENDER_REPO_URL}")
+        print(f"[install] For updates, Blender: Preferences > Get Extensions > Repositories > + > Add Remote Repository:\n[install]   {BLENDER_REPO_URL}")
     print("[install] done. Start the core with `cd core && uv run tech-art-core`, or just open Houdini/Blender: they start it.")
     return 0
 

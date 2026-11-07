@@ -23,8 +23,11 @@ from tech_art_core.settings import Settings
 pytestmark = pytest.mark.skipif(not os.environ.get("PYDANTIC_AI_GATEWAY_API_KEY"), reason="no PYDANTIC_AI_GATEWAY_API_KEY in the environment")
 
 # The working agent (DeepSeek behind the OpenRouter endpoint), the reviewer (Google), and the built-in fallbacks.
+# Everything runs on Haiku for now. DeepSeek (behind the gateway's OpenRouter endpoint) joins FAMILIES, and becomes AGENT, once
+# that endpoint is set up in Logfire; its tests then need no other change.
+AGENT = "gateway/anthropic/claude-haiku-5-5"
 DEEPSEEK = "gateway/chat@openrouter/deepseek/deepseek-v4.1-flash-1017"
-FAMILIES = [DEEPSEEK, "gateway/google/gemini-3.8-flash", "gateway/openai/gpt-6.1-sol", "gateway/anthropic/claude-haiku-5-5"]
+FAMILIES = [AGENT, "gateway/anthropic/claude-sonnet-5-5", "gateway/google/gemini-3.8-flash", "gateway/openai/gpt-6.1-terra"]
 
 
 @pytest.mark.parametrize("key", FAMILIES)
@@ -36,14 +39,14 @@ async def test_a_text_turn_reports_a_cost(key):
 
 @pytest.mark.parametrize("key", FAMILIES)
 async def test_an_image_survives_the_trip_to_each_vision_model(key):
-    prompt = ["Answer with one word, the colour of the LEFT half of this image.", BinaryContent(data=TEST_PNG, media_type="image/png")]
+    prompt = ["This image is made of two solid colours. Name both.", BinaryContent(data=TEST_PNG, media_type="image/png")]
     result = await Agent(build_model(key, Settings())).run(prompt)
-    assert "red" in result.output.lower()
+    assert "red" in result.output.lower() and "blue" in result.output.lower()
 
 
 async def test_the_default_agent_calls_tools_with_the_right_arguments():
     calls = []
-    agent = Agent(build_model(DEEPSEEK, Settings()), instructions="Use the tool for any arithmetic. Do not compute it yourself.")
+    agent = Agent(build_model(AGENT, Settings()), instructions="Use the tool for any arithmetic. Do not compute it yourself.")
 
     @agent.tool_plain
     def add_numbers(a: int, b: int) -> int:

@@ -85,17 +85,14 @@ class GatewaySettings(BaseModel):
 
     models: list[str] = Field(
         default_factory=lambda: [
-            # Behind a custom gateway endpoint: OpenRouter added as a BYOK provider in Logfire's Gateway settings, with the
-            # slug `openrouter` (see docs/help.md). `chat` is the OpenAI-compatible API format those endpoints speak.
-            "chat@openrouter/deepseek/deepseek-v4.1-flash-1017",
-            "chat@openrouter/deepseek/deepseek-v4.1-flash",
-            "chat@openrouter/google/gemini-3.8-flash",
-            # The gateway's built-in providers.
-            "openai/gpt-6.1-sol",
-            "openai/gpt-6.1-terra",
-            "google/gemini-3.8-flash",
-            "anthropic/claude-sonnet-5-5",
+            # The gateway's built-in providers. Everything runs on Haiku for now (see `default_model` and `review.model`).
+            # To add DeepSeek: set up OpenRouter as a custom provider in Logfire's Gateway settings (docs/help.md), then list
+            # e.g. "chat@openrouter/deepseek/deepseek-v4.1-flash-1017" here (`chat` is the OpenAI-compatible API format).
             "anthropic/claude-haiku-5-5",
+            "anthropic/claude-sonnet-5-5",
+            "google/gemini-3.8-flash",
+            "openai/gpt-6.1-terra",
+            "openai/gpt-6.1-sol",
         ]
     )
     # Do these models accept images? The pane only offers models that do, because the agent has to look at renders.
@@ -110,7 +107,9 @@ class ReviewSettings(BaseModel):
 
     enabled: bool = True
     # Pin the reviewer, "provider/model". None: the first available candidate from a different family than the agent's.
-    model: str | None = None
+    # For now it is Haiku, the same family as the agent (the pane says that is the weaker check); set it to None for a
+    # cross-family reviewer (Gemini first).
+    model: str | None = "gateway/anthropic/claude-haiku-5-5"
     candidates: list[str] = Field(
         default_factory=lambda: [
             "gateway/google/gemini-3.8-flash",
@@ -139,16 +138,15 @@ class Settings(BaseModel):
 
     default_model: list[str] = Field(
         default_factory=lambda: [
-            # The working agent: DeepSeek's newest Flash (images, 1M context, a fraction of a frontier model's price), reached
-            # through the gateway's OpenRouter endpoint. A dated snapshot, not a floating alias, so that tuning docs and
-            # techniques against it compares like with like.
-            "gateway/chat@openrouter/deepseek/deepseek-v4.1-flash-1017",
-            "gateway/chat@openrouter/deepseek/deepseek-v4.1-flash",
-            # Fallbacks on the gateway's built-in providers, used when that endpoint is not set up.
-            "gateway/openai/gpt-6.1-sol",
-            "gateway/openai/gpt-6.1-terra",
-            "gateway/anthropic/claude-sonnet-5-5",
+            # For now everything runs on Haiku, so the OpenRouter connection is not needed yet. The intended working agent is
+            # DeepSeek's newest Flash through the gateway's OpenRouter endpoint ("gateway/chat@openrouter/deepseek/
+            # deepseek-v4.1-flash-1017", a dated snapshot so that tuning docs and techniques compares like with like); put
+            # it first here once that endpoint exists.
             "gateway/anthropic/claude-haiku-5-5",
+            "gateway/anthropic/claude-sonnet-5-5",
+            "gateway/google/gemini-3.8-flash",
+            "gateway/openai/gpt-6.1-terra",
+            "gateway/openai/gpt-6.1-sol",
         ],
         alias="defaultModel",
     )

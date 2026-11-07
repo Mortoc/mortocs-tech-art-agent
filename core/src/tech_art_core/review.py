@@ -105,7 +105,14 @@ def family_of(model_key: str | None) -> str:
     if parts and parts[0] in ("gateway", "openrouter") and len(parts) > 1:
         parts = parts[1:]
     head = parts[0] if parts else ""
-    by_name = {"google-cloud": "google", "gemini": "google", "claude": "anthropic", "gpt": "openai", "bedrock": "amazon"}
+    by_name = {"google-cloud": "google", "gemini": "google", "claude": "anthropic", "gpt": "openai"}
+    if head in ("bedrock", "converse") and len(parts) > 1:
+        # Bedrock ids are `[geo.]maker.model-v1:0` (e.g. `us.deepseek.r1-v1:0`): the maker is the family, not "bedrock"
+        segments = parts[-1].split(".")
+        if segments[0] in ("us", "eu", "apac", "au", "ca", "jp", "global", "us-gov") and len(segments) > 1:
+            segments = segments[1:]
+        maker = segments[0]
+        return {"meta": "meta", "amazon": "amazon", "mistral": "mistral"}.get(maker, by_name.get(maker, maker or "unknown"))
     if "@" in head or head in ("chat", "responses", "openai-chat", "openai-responses"):
         # an API format or a custom gateway endpoint says nothing about who made the model: read the model's own name
         name = parts[-1].split("-")[0].split(".")[0]

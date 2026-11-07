@@ -19,7 +19,7 @@ def scripted(sees_images=True, calls_tools=True, error=None):
         if any(isinstance(c, BinaryContent) for c in contents):
             if not sees_images:
                 raise ai.ModelHTTPError(400, "m", {"error": "image input is not supported by this model"})
-            return ModelResponse(parts=[TextPart(content="Red")])
+            return ModelResponse(parts=[TextPart(content="Red and blue.")])
         if any(isinstance(p, ToolReturnPart) for p in parts):
             return ModelResponse(parts=[TextPart(content="The answer is 685")])
         if "417" in " ".join(str(c) for c in contents):

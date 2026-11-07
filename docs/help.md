@@ -77,8 +77,9 @@ Two scopes, both shown to the agent every turn:
 {
   "naming": { "model": "cheapest", "renameAtUserMessages": [1, 5] },
   "followNodes": true,
-  "defaultModel": ["gateway/chat@openrouter/deepseek/deepseek-v4.1-flash-1017", "gateway/openai/gpt-6.1-sol"],
-  "gateway": { "models": ["chat@openrouter/deepseek/deepseek-v4.1-flash-1017", "openai/gpt-6.1-sol", "anthropic/claude-sonnet-5-5"] },
+  "defaultModel": ["gateway/anthropic/claude-haiku-5-5", "gateway/anthropic/claude-sonnet-5-5"],
+  "gateway": { "models": ["anthropic/claude-haiku-5-5", "anthropic/claude-sonnet-5-5", "google/gemini-3.8-flash"] },
+  "review": { "model": "gateway/anthropic/claude-haiku-5-5" },
   "providers": { "ollama": { "baseUrl": "http://localhost:11434/v1" } },
   "layout": { "autoLayout": false }
 }
@@ -108,6 +109,13 @@ The agent talks to models only through the [Pydantic AI Gateway](https://pydanti
 4. Run **`tech-art-core probe`** with the key in the environment. It tries every model in your menu with a tiny request (text,
    an image, a tool call), prints what works and, for what does not, why in plain words.
 
+**Custom or other models through Bedrock.** Bedrock is a built-in gateway provider, so Bedrock-hosted models are reachable as
+`gateway/bedrock/<model id>` (ids look like `us.<maker>.<model>-v1:0`). Two things to check first: the core needs the `bedrock`
+extra for pydantic-ai (it adds `boto3`), and AWS credentials must be set up for the gateway in Logfire. Models you imported or
+fine-tuned on Bedrock are called by ARN and have no entry in the gateway's price list, which built-in providers refuse; they
+would need Bedrock added as a *custom* provider behind an endpoint with "Require pricing data" off, like OpenRouter above.
+`tech-art-core probe --model gateway/bedrock/<id>` shows whether a given model works.
+
 The exact labels in Logfire's UI may differ from the ones above; the model strings are
 `gateway/<api format>[@<endpoint slug>]/<model>`, for example `gateway/openai/gpt-6.1-sol` or
 `gateway/chat@openrouter/deepseek/deepseek-v4.1-flash-1017`.
@@ -121,7 +129,9 @@ confirmed, scope drift, words read in another app's sense (artists move between 
 contradict the agent's own summary. Each finding quotes you and gives the single question that would settle it: press
 *answer this* to put that question in the message box. The card says when no other family was available (a weaker check).
 
-`review` in settings: `{"enabled": true, "model": null, "candidates": ["gateway/google/gemini-3.8-flash", ...], "auto": false, "every": 1}`.
+`review` in settings: `{"enabled": true, "model": "gateway/anthropic/claude-haiku-5-5", "candidates": ["gateway/google/gemini-3.8-flash", ...], "auto": false, "every": 1}`.
+For now the reviewer is Haiku, the same family as the agent, and the card says so; set `model` to `null` and the first available
+candidate from a different family (Gemini) is used.
 
 ## When something is wrong
 
