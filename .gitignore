@@ -5,3 +5,26 @@ dist/
 __pycache__/
 .playwright/
 test-results/
+
+# Secrets and keys. Encrypted secrets/*.env (sops) and .sops.yaml ARE committed; everything below must never be.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.kdbx
+*.age
+keys.txt
+id_rsa*
+id_ed25519*
+secrets/*
+!secrets/*.env
+secrets/.tmp*
+
+# Environments and build output
+.venv/
+*.tsbuildinfo
+
+# Local table of private names and their aliases (see CLAUDE.md). Never commit it.
+.renames

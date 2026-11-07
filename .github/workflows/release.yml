@@ -1,23 +1,22 @@
 name: release
 
+# A tag publishes the Blender extension repository (the zip and index.json under docs/blender/) with the GitHub release;
+# GitHub Pages serves the committed copy at https://mortoc.github.io/mortocs-tech-art-agent/blender/index.json.
 on:
   push:
     tags: ["v*"]
 
 jobs:
-  build:
+  extension:
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci
-      - run: npm run build
-      - run: tar czf houdini-pi-dist-${GITHUB_REF_NAME}.tar.gz ui/dist sidecar/dist protocol/dist pi/dist
+      - run: sudo snap install blender --classic
+      - run: ./scripts/build_blender.py --blender /snap/bin/blender --out build/blender-repo
       - uses: softprops/action-gh-release@v2
         with:
-          files: houdini-pi-dist-*.tar.gz
+          files: |
+            build/blender-repo/*.zip
+            build/blender-repo/index.json

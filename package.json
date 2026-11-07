@@ -1,25 +1,21 @@
 {
-  "name": "houdini-pi",
+  "name": "mortocs-tech-art-agent",
   "private": true,
   "version": "0.1.0",
-  "description": "An in-Houdini chat agent built on pi",
+  "description": "The pane UI for the tech-art agent core",
   "license": "MIT",
   "engines": {
     "node": ">=22.19.0"
   },
   "workspaces": [
     "protocol",
-    "sidecar",
-    "pi",
     "ui"
   ],
   "scripts": {
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "test:py": "uv run --with pytest pytest houdini/tests tests",
-    "typecheck": "tsc -b protocol pi sidecar",
-    "build": "npm run build -w protocol && npm run build -w ui && npm run build -w sidecar",
-    "check-pi": "vitest run sidecar/test/pi-surface.test.ts"
+    "typecheck": "tsc -b protocol && tsc -p ui --noEmit",
+    "build": "npm run build -w protocol && npm run build -w ui"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

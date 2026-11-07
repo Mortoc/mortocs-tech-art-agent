@@ -12,6 +12,13 @@ import houdini_pi.panel
 houdini_pi.panel.open_pane()
 ]]></scriptCode>
         </scriptItem>
+        <scriptItem id="houdini_pi_reload">
+          <label>Reload Agent</label>
+          <scriptCode><![CDATA[
+import houdini_pi
+houdini_pi.reload()
+]]></scriptCode>
+        </scriptItem>
       </subMenu>
     </subMenu>
   </menuBar>

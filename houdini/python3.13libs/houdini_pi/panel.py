@@ -1,8 +1,7 @@
-"""The Python Panel: a QWebEngineView onto the sidecar's page. Nothing else lives here.
+"""The Python Panel: a QWebEngineView onto the agent core's page. Nothing else lives here.
 
-Startup is asynchronous on purpose: createInterface runs on Houdini's main
-thread, so the sidecar is spawned and then polled from a QTimer while a
-placeholder shows. A blocking wait here froze Houdini for seconds.
+Startup is asynchronous on purpose: createInterface runs on Houdini's main thread, so the connection to the
+core is polled from a QTimer while a placeholder shows. A blocking wait here froze Houdini for seconds.
 """
 
 from __future__ import annotations
@@ -14,11 +13,11 @@ import json
 
 from PySide6 import QtCore, QtWidgets
 
-from houdini_pi import drops, sidecar
-from houdini_pi.sidecar import auto_layout_wanted, pane_zoom, software_render_wanted
+from houdini_pi import drops, runtime
+from houdini_pi.settings import pane_zoom, software_render_wanted
 
 POLL_MS = 250
-GIVE_UP_AFTER_POLLS = 120
+GIVE_UP_AFTER_POLLS = 120  # 30 s
 
 
 def _houdini_zoom() -> float:
@@ -29,21 +28,6 @@ def _houdini_zoom() -> float:
         return pane_zoom(hou.ui.globalScaleFactor())
     except Exception:  # no UI (hython) or an old hou: render at 1x
         return 1.0
-
-
-def _apply_auto_layout() -> None:
-    """Set FXHOUDINIMCP_AUTO_LAYOUT in Houdini's env when houdini-pi is configured to.
-
-    The fxhoudinimcp bridge reads this via `hou.getenv` first, so a `putenv` here
-    wins over the package file for this session. None means: leave the upstream
-    default (off) alone.
-    """
-    wanted = auto_layout_wanted()
-    if wanted is None:
-        return
-    import hou
-
-    hou.putenv("FXHOUDINIMCP_AUTO_LAYOUT", "1" if wanted else "0")
 
 
 class _GluedPage:
@@ -75,54 +59,36 @@ class _GluedPage:
 class AgentPane(QtWidgets.QStackedWidget):
     def __init__(self):
         super().__init__()
-        self._label = QtWidgets.QLabel("Starting the houdini-pi sidecar…")
+        self._label = QtWidgets.QLabel("Connecting to the agent core…")
         self._label.setWordWrap(True)
         self._label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
         self._label.setAlignment(QtCore.Qt.AlignTop)
         self.addWidget(self._label)
+        self._polls = 0
         self._timer = QtCore.QTimer(self)
         self._timer.setInterval(POLL_MS)
         self._timer.timeout.connect(self._poll)
-        self._pending: sidecar.Pending | None = None
-        self._bridge_polls = 0
-        _apply_auto_layout()
+        try:
+            runtime.start()  # normally already running since Houdini started; idempotent
+        except Exception:
+            self._fail(traceback.format_exc())
+            return
         self._timer.start()
         self._poll()
 
-    def _start(self, bridge_port: int):
-        try:
-            started = sidecar.start_sidecar(os.getpid(), bridge_port)
-        except Exception:
-            self._timer.stop()
-            self._fail(traceback.format_exc())
-            return
-        if isinstance(started, str):
-            self._timer.stop()
-            self._show(started)
-        else:
-            self._pending = started
-
     def _poll(self):
-        pending = self._pending
-        if pending is None:
-            # The bridge may still be starting when the desktop builds this pane.
-            port = sidecar.bridge_port()
-            if port is not None:
-                self._start(port)
-                return
-            self._bridge_polls += 1
-            if self._bridge_polls >= GIVE_UP_AFTER_POLLS:
-                self._timer.stop()
-                self._fail(f"Houdini's fxhoudinimcp bridge did not start within {GIVE_UP_AFTER_POLLS * POLL_MS // 1000}s.")
-            return
-        url = pending.url_if_ready()
-        if url is not None:
+        self._polls += 1
+        if runtime.connected():
             self._timer.stop()
-            self._show(url)
-            return
-        if pending.polls >= GIVE_UP_AFTER_POLLS:
+            self._show(runtime.pane_url())
+        elif self._polls >= GIVE_UP_AFTER_POLLS:
             self._timer.stop()
-            self._fail(f"sidecar did not answer on port {pending.port} within {GIVE_UP_AFTER_POLLS * POLL_MS // 1000}s.\n\nLog: {pending.log}\n\n{_tail(pending.log)}")
+            self._fail(
+                f"Could not reach the agent core within {GIVE_UP_AFTER_POLLS * POLL_MS // 1000}s.\n\n"
+                "On NixOS it starts by itself when something connects to 127.0.0.1:9100 (services.tech-art-agent). "
+                "Elsewhere run `tech-art-core`, or record how to start it in ~/.tech-art-agent/install.json.\n\n"
+                + "\n".join(runtime.LOG[-5:])
+            )
 
     def _show(self, url: str):
         if software_render_wanted():
@@ -130,7 +96,7 @@ class AgentPane(QtWidgets.QStackedWidget):
         try:
             from PySide6 import QtWebEngineWidgets
         except ImportError:
-            self._fail("This Houdini's PySide6 has no QtWebEngineWidgets; houdini-pi needs it.")
+            self._fail("This Houdini's PySide6 has no QtWebEngineWidgets; the agent pane needs it.")
             return
         view = QtWebEngineWidgets.QWebEngineView()
         # Glue the page: no navigation away from the agent, ever.
@@ -212,13 +178,6 @@ class DropForwarder(QtCore.QObject):
         event.acceptProposedAction()
         self._view.page().runJavaScript(f"window.houdiniPiDrop && window.houdiniPiDrop({json.dumps(paths)})")
         return True
-
-
-def _tail(path, lines: int = 20) -> str:
-    try:
-        return "\n".join(path.read_text(errors="replace").splitlines()[-lines:])
-    except OSError:
-        return "(no log yet)"
 
 
 def createInterface():  # noqa: N802  (Houdini's required name)

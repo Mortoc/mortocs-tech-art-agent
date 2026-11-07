@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <pythonPanelDocument>
-  <interface name="houdini_pi" label="Houdini Agent" icon="MISC_python" showNetworkNavigationBar="true" help_url="https://mortoc.github.io/houdini-pi/help">
+  <interface name="houdini_pi" label="Houdini Agent" icon="MISC_python" showNetworkNavigationBar="true" help_url="https://mortoc.github.io/mortocs-tech-art-agent/help">
     <script><![CDATA[
 import houdini_pi.panel
 
@@ -9,6 +9,6 @@ def createInterface():
 ]]></script>
     <includeInPaneTabMenu menu_position="300" create_separator="false"/>
     <includeInToolbarMenu menu_position="300" create_separator="false"/>
-    <help><![CDATA[Chat with an LLM that edits this scene. https://github.com/Mortoc/houdini-pi]]></help>
+    <help><![CDATA[Chat with an LLM that edits this scene. https://github.com/Mortoc/mortocs-tech-art-agent]]></help>
   </interface>
 </pythonPanelDocument>

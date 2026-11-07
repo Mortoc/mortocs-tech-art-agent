@@ -2,7 +2,7 @@ import { type ClientMessage, type ServerMessage, decodeServer, encode } from "@h
 
 export type Status = "connecting" | "open" | "closed";
 
-/** Reconnecting WebSocket to the sidecar. The launch token rides on the page URL. */
+/** Reconnecting WebSocket to the agent core. The launch token rides on the page URL. */
 export class PaneSocket {
   private socket: WebSocket | undefined;
   private attempt = 0;
@@ -13,9 +13,11 @@ export class PaneSocket {
   constructor(private readonly url: string) {}
 
   static urlFromPage(location: Location): string {
-    const token = new URLSearchParams(location.search).get("token") ?? "";
+    const params = new URLSearchParams(location.search);
+    const token = params.get("token") ?? "";
+    const client = params.get("client") ?? "";
     const scheme = location.protocol === "https:" ? "wss" : "ws";
-    return `${scheme}://${location.host}/ws?token=${encodeURIComponent(token)}`;
+    return `${scheme}://${location.host}/ws?token=${encodeURIComponent(token)}&client=${encodeURIComponent(client)}`;
   }
 
   connect() {

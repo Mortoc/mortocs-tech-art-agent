@@ -9,7 +9,7 @@ Each entry: decision, options weighed, why. Review in the morning.
 2. **Dev toolchain comes from the repo's own `flake.nix` devShell** (Node 22,
    uv, Python 3.12, playwright-driver browsers). Options: rely on the host's
    `~/.nix-profile` node (20.x, too old for pi) vs the flake. The flake is also
-   what SquatchLinux will consume, so it was needed anyway.
+   what the company NixOS config will consume, so it was needed anyway.
 3. **`@playwright/test` pinned to nixpkgs' `playwright-driver` version (1.61.1)**
    so the nix-provided browsers match. Downloading browsers via `npx playwright
    install` on NixOS needs nix-ld and is not reproducible.
@@ -44,8 +44,8 @@ Each entry: decision, options weighed, why. Review in the morning.
 10. **Compaction's condense call is a one-shot `completeSimple` on the current
     model** (no tools, in-memory), not a second AgentSession. Cheaper and it
     cannot touch the scene.
-11. **The Squatch consumer work is NOT in this run.** SquatchLinux's pi bump
-    landed independently (pi is 1.1.0 on tekla now); the four `/opt/hfs22.0`
+11. **The Squatch consumer work is NOT in this run.** the company NixOS config's pi bump
+    landed independently (pi is 1.1.0 on the dev machines now); the four `/opt/hfs22.0`
     defaults in the Squatch repo and the home-manager package-file entry are
     left for a separate PR, since this run is the houdini-pi repo.
 12. **Sidecar is spawned with Houdini's `LD_LIBRARY_PATH` / `PYTHONPATH` scrubbed.**

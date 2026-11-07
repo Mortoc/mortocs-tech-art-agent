@@ -3,18 +3,21 @@ import type { ToolCall } from "../state.js";
 import { CodeBlock } from "./CodeBlock.js";
 import { CopyButton } from "./CopyButton.js";
 
+/** Tools that run a script in the app (Houdini, Blender). */
+const CODE_TOOLS = ["execute_python", "execute_blender_code"];
+
 function houdiniSummary(tool: ToolCall): string | undefined {
-  const is_houdini = tool.toolName.startsWith("mcp__fxhoudini__");
-  if (!is_houdini) return undefined;
+  const is_own = ["inspect_cop", "inspect_viewport", "present_answer", "search_tools"].includes(tool.toolName) || tool.toolName.startsWith("memory_");
+  if (is_own) return undefined;
   const args = (tool.args ?? {}) as Record<string, unknown>;
-  const parts = [args["node_path"], args["parm_name"], args["node_type"], args["name"]].filter((v) => typeof v === "string") as string[];
+  const parts = [args["node_path"], args["parm_name"], args["node_type"], args["object_name"], args["name"]].filter((v) => typeof v === "string") as string[];
   return parts.join(" · ");
 }
 
 /** The script a code-running tool was given, with its language, or undefined for every other tool. */
 export function scriptOf(tool: ToolCall): { code: string; language: "python" | "javascript" } | undefined {
   const args = (tool.args ?? {}) as Record<string, unknown>;
-  const is_python = tool.toolName === "mcp__fxhoudini__execute_python" && typeof args["code"] === "string";
+  const is_python = CODE_TOOLS.includes(tool.toolName) && typeof args["code"] === "string";
   if (is_python) return { code: args["code"] as string, language: "python" };
   const script = args["code"] ?? args["script"];
   const is_codemode = tool.toolName === "codemode" && typeof script === "string";
@@ -39,7 +42,7 @@ function lastLine(text: string): string {
  */
 export function shownResult(tool: ToolCall): ShownResult | undefined {
   if (tool.result === undefined) return undefined;
-  const is_code_tool = tool.toolName === "mcp__fxhoudini__execute_python" || tool.toolName === "codemode";
+  const is_code_tool = CODE_TOOLS.includes(tool.toolName);
   if (is_code_tool) {
     let parsed: Record<string, unknown> | undefined;
     try {
@@ -59,7 +62,7 @@ export function shownResult(tool: ToolCall): ShownResult | undefined {
 }
 
 export function ToolCard({ tool }: { tool: ToolCall }) {
-  const label = tool.toolName === "inspect_cop" ? "inspect COP" : tool.toolName === "inspect_viewport" ? "inspect viewport" : tool.toolName.replace(/^mcp__fxhoudini__/, "houdini: ");
+  const label = tool.toolName === "inspect_cop" ? "inspect COP" : tool.toolName === "inspect_viewport" ? "inspect viewport" : tool.toolName;
   const summary = houdiniSummary(tool);
   const pending = tool.result === undefined;
   const script = scriptOf(tool);

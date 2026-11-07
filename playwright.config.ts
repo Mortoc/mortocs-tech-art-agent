@@ -1,12 +1,11 @@
 import { defineConfig } from "@playwright/test";
 
-/** The UI spec runs against the built page served by the sidecar with the fake agent. */
+/** The pane spec runs the built UI against the real core (core/tests/demo_core.py) and a fake local model server. */
 export default defineConfig({
   testDir: "./ui/e2e",
   timeout: 30_000,
   retries: 0,
-  // One fake-agent sidecar serves every test, and it holds one conversation:
-  // parallel tests would interleave their prompts.
+  // One core serves every test and holds one conversation per app: parallel tests would interleave their prompts.
   workers: 1,
   fullyParallel: false,
   reporter: process.env["CI"] ? "github" : "list",
@@ -15,9 +14,9 @@ export default defineConfig({
     headless: true,
   },
   webServer: {
-    command: "node sidecar/dist/src/index.js --fake-agent --port 9123 --token e2e",
+    command: "cd core && PYTHONPATH=../python uv run python tests/demo_core.py --port 9123 --token e2e",
     url: "http://127.0.0.1:9123/health",
     reuseExistingServer: false,
-    timeout: 30_000,
+    timeout: 60_000,
   },
 });

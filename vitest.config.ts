@@ -7,11 +7,10 @@ export default defineConfig({
   resolve: {
     alias: {
       "@houdini-pi/protocol": here("./protocol/src/index.ts"),
-      "@houdini-pi/pi-package": here("./pi/extensions/index.ts"),
     },
   },
   test: {
-    include: ["protocol/src/**/*.test.ts", "sidecar/test/**/*.test.ts", "pi/test/**/*.test.ts", "ui/src/**/*.test.ts"],
+    include: ["protocol/src/**/*.test.ts", "ui/src/**/*.test.ts"],
     environment: "node",
   },
 });

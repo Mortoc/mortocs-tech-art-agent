@@ -1,8 +1,13 @@
 [project]
-name = "houdini-pi-tests"
+name = "mortocs-tech-art-agent-tests"
 version = "0.0.0"
 requires-python = ">=3.12"
 dependencies = ["pytest>=8"]
 
+# Run everything from the repo root with the core's environment:
+#   uv run --project core pytest
 [tool.pytest.ini_options]
-testpaths = ["houdini/tests", "tests"]
+testpaths = ["core/tests", "houdini/tests", "python/tests", "tests"]
+pythonpath = ["python", "core/src"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

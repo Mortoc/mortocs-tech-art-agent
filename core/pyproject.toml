@@ -1,0 +1,34 @@
+[project]
+name = "tech-art-core"
+version = "0.1.0"
+description = "Core server for the tech-art agent: one agent service that Houdini, Blender and games connect to"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+  "pydantic-ai-slim[openai,anthropic,google,openrouter,mcp,logfire]>=2.65",
+  "fastapi>=0.162",
+  "uvicorn>=0.54",
+  "websockets>=15",
+  "httpx>=0.28",
+  "pydantic-settings>=2.16",
+  "logfire[fastapi]>=5.4",
+]
+
+[project.scripts]
+tech-art-core = "tech_art_core.__main__:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "httpx>=0.28", "fastmcp>=3"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tech_art_core"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["../python"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

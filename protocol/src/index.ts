@@ -33,9 +33,9 @@ export interface SessionRef {
   modified: number;
 }
 
-export type HoudiniActionKind = "select" | "parm" | "network" | "pane" | "help";
+export type ActionKind = "select" | "parm" | "network" | "pane" | "help";
 
-/** An answer the artist reads: Markdown whose houdini:// links the pane renders as buttons; `invalid` maps a link href to why it is disabled. */
+/** An answer the artist reads: Markdown whose links (houdini://, blender://) the pane renders as buttons; `invalid` maps a link href to why it is disabled. */
 export interface Answer {
   markdown: string;
   invalid: Record<string, string>;
@@ -44,6 +44,32 @@ export interface Answer {
 export interface ImageAttachment {
   mimeType: string;
   data: string;
+}
+
+export interface ReviewFinding {
+  kind: string;
+  severity: "low" | "medium" | "high";
+  /** Which artist message, counting from 1. */
+  turn: number;
+  userSaid: string;
+  agentDid: string;
+  risk: string;
+  askInstead: string;
+}
+
+/** A second opinion on whether the artist and the agent understood each other. */
+export interface ReviewResult {
+  verdict: "aligned" | "check" | "misaligned";
+  summary: string;
+  findings: ReviewFinding[];
+  /** The reviewing model ("provider/id") and the lineages involved. */
+  reviewer: string;
+  reviewerFamily: string;
+  agentFamily: string;
+  /** False when no model from another family was available: a weaker check. */
+  differentFamily: boolean;
+  turns: number;
+  cost: number;
 }
 
 export type ClientMessage =
@@ -65,16 +91,23 @@ export type ClientMessage =
   | { type: "project_memory_read" }
   | { type: "project_memory_edit"; text: string }
   | { type: "rename_session"; name: string }
-  | { type: "houdini_action"; kind: HoudiniActionKind; value: string }
+  | { type: "host_action"; kind: ActionKind; value: string }
   | { type: "open_external"; url: string }
-  | { type: "undo_turn" };
+  | { type: "undo_turn" }
+  /** Ask a model from another family whether the artist and the agent understood each other. */
+  | { type: "review" };
 
 export interface HelloState {
   sessionId: string;
   sessionPath: string | undefined;
   model: ModelRef | undefined;
   thinkingLevel: ThinkingLevel;
-  hip: string | undefined;
+  /** The app this pane is attached to ("houdini", "blender") and its open document. */
+  host: string;
+  document: string | undefined;
+  /** The scheme answers use for buttons, and the title the pane shows. */
+  linkScheme: string;
+  title: string;
   sessionName: string | undefined;
   isStreaming: boolean;
   /** What the conversation has cost so far, USD. */
@@ -105,7 +138,8 @@ export type ServerMessage =
   | { type: "memory"; text: string; prevAvailable: boolean }
   | { type: "memory_compacted"; before: number; after: number }
   | { type: "project_memory"; available: boolean; text: string; prevAvailable: boolean }
-  | { type: "error"; message: string; action?: "reconnect" | "login" }
+  | ({ type: "review" } & ReviewResult)
+  | { type: "error"; message: string; action?: "reconnect" | "login" | "unreachable" | "retry" }
   | { type: "history"; messages: HistoryMessage[] };
 
 export interface HistoryTool {
@@ -144,13 +178,14 @@ const CLIENT_TYPES: Record<ClientMessage["type"], readonly string[]> = {
   project_memory_read: [],
   project_memory_edit: ["text"],
   rename_session: ["name"],
-  houdini_action: ["kind", "value"],
+  host_action: ["kind", "value"],
   open_external: ["url"],
   undo_turn: [],
+  review: [],
 };
 
 const SERVER_TYPES: Record<ServerMessage["type"], readonly string[]> = {
-  hello: ["sessionId", "thinkingLevel", "isStreaming"],
+  hello: ["sessionId", "thinkingLevel", "isStreaming", "host", "linkScheme", "title"],
   state: ["thinkingLevel", "isStreaming"],
   session_name: [],
   user_message: ["text"],
@@ -167,6 +202,7 @@ const SERVER_TYPES: Record<ServerMessage["type"], readonly string[]> = {
   memory_compacted: ["before", "after"],
   project_memory: ["available", "text", "prevAvailable"],
   error: ["message"],
+  review: ["verdict", "summary", "findings"],
   history: ["messages"],
 };
 

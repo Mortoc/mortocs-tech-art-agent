@@ -1,19 +1,15 @@
 #!/bin/sh
-# Install houdini-pi into this user's Houdini.
+# Install the tech-art agent on this machine (outside NixOS; on NixOS use the flake's module).
 #
-#   ./install              # check requirements, build, write the package JSON
-#   ./install --uninstall  # remove the package file the installer wrote
+#   ./install              # build the pane UI, record how to start the core, set up Houdini / Blender if present
+#   ./install --houdini    # only Houdini        ./install --blender   # only Blender
+#   ./install --uninstall  # undo what the installer wrote
 #   ./install --check      # requirements check only, no build, no write
 #
-# Plain sh on purpose: it has to run, and say what is missing, on a machine
-# that has none of the requirements yet. It uses only shell builtins. Once the
-# requirements pass, scripts/install.py does the rest under uv.
+# Plain sh on purpose: it has to run, and say what is missing, on a machine with none of the requirements yet.
+# Once uv is there, scripts/install.py does the rest.
 
 set -u
-
-NODE_MIN="22 19 0"
-# The first pi release with built-in MCP (`builtin:mcp`), which the sidecar relies on.
-PI_MIN="1 0 0"
 
 case $0 in
   */*) ROOT=$(cd "${0%/*}" && pwd) ;;
@@ -21,20 +17,23 @@ case $0 in
 esac
 
 mode=install
+passthrough=""
 for arg in "$@"; do
   case $arg in
     --check) mode=check ;;
-    --uninstall) mode=uninstall ;;
+    --uninstall | --houdini | --blender) passthrough="$passthrough $arg" ;;
     -h | --help)
-      sed -n '2,6s/^# \{0,1\}//p' "$0" 2>/dev/null || echo "usage: ./install [--check | --uninstall]"
+      sed -n '2,8s/^# \{0,1\}//p' "$0" 2>/dev/null || echo "usage: ./install [--houdini] [--blender] [--uninstall | --check]"
       exit 0
       ;;
     *)
-      echo "install: unknown option '$arg'. Usage: ./install [--check | --uninstall]" >&2
+      echo "install: unknown option '$arg'. Usage: ./install [--houdini] [--blender] [--uninstall | --check]" >&2
       exit 2
       ;;
   esac
 done
+
+NODE_MIN="22 19 0"
 
 # "major minor patch" from the first dotted number in $1; fails when there is none.
 parse_version() {
@@ -49,7 +48,6 @@ parse_version() {
   echo "${1:-0} ${2:-0} ${3:-0}"
 }
 
-# version_at_least "22 23 3" "22 19 0"
 version_at_least() {
   # shellcheck disable=SC2086 # split on spaces
   set -- $1 $2
@@ -67,18 +65,19 @@ dotted() {
 }
 
 missing=0
-# Silent on success: only failures print. A wall of green checks tells the
-# user nothing they did not already know; a missing tool is the only output
-# worth making.
-pass() { :; }
+# Silent on success: only problems print.
 fail() {
   missing=$((missing + 1))
   printf '  \342\234\227 %-12s %s\n' "$1" "$2"
   shift 2
   for line in "$@"; do printf '                   %s\n' "$line"; done
 }
+warn() {
+  printf '  ! %-12s %s\n' "$1" "$2"
+  shift 2
+  for line in "$@"; do printf '                   %s\n' "$line"; done
+}
 
-# A tool installed to a usual place that this shell's PATH has not picked up yet.
 installed_off_path() {
   for dir in "$HOME/.local/bin" "$HOME/.cargo/bin" "$HOME/.npm-global/bin"; do
     if [ -x "$dir/$1" ]; then
@@ -89,64 +88,31 @@ installed_off_path() {
   return 1
 }
 
-not_found() {
-  name=$1
-  shift
-  if found=$(installed_off_path "$name"); then
-    fail "$name" "installed at $found but not on PATH" \
-      "Open a new terminal, or add ${found%/*} to PATH."
+# uv runs the installer, the core and the tool servers, so it is the one hard requirement.
+if ! command -v uv >/dev/null 2>&1; then
+  if found=$(installed_off_path uv); then
+    fail uv "installed at $found but not on PATH" "Open a new terminal, or add ${found%/*} to PATH."
   else
-    fail "$name" "not found" "$@"
+    fail uv "not found" \
+      "uv runs this installer, the agent core and its tool servers." \
+      "Install it: curl -LsSf https://astral.sh/uv/install.sh | sh" \
+      "(more options: https://docs.astral.sh/uv/getting-started/installation/)"
   fi
-}
-
-check_versioned() {
-  name=$1 minimum=$2
-  shift 2
-  if ! command -v "$name" >/dev/null 2>&1; then
-    not_found "$name" "$@"
-    return
-  fi
-  if ! found=$(parse_version "$("$name" --version 2>/dev/null)"); then
-    fail "$name" "could not read '$name --version'" "$@"
-  elif version_at_least "$found" "$minimum"; then
-    pass "$name" "$(dotted "$found")"
-  else
-    fail "$name" "found $(dotted "$found"), need $(dotted "$minimum") or newer" "$@"
-  fi
-}
-
-check_present() {
-  name=$1
-  shift
-  if command -v "$name" >/dev/null 2>&1; then
-    pass "$name" "$(command -v "$name")"
-  else
-    not_found "$name" "$@"
-  fi
-}
-
-check_present uv \
-  "uv runs this installer and the fxhoudinimcp MCP server." \
-  "Install it: curl -LsSf https://astral.sh/uv/install.sh | sh" \
-  "(more options: https://docs.astral.sh/uv/getting-started/installation/)"
-
-if [ "$mode" != uninstall ]; then
-  if command -v uv >/dev/null 2>&1; then
-    check_present uvx "uvx ships with uv; reinstall uv to get it back."
-  fi
-  check_versioned node "$NODE_MIN" \
-    "Node runs the sidecar. Install Node $(dotted "$NODE_MIN")+ from https://nodejs.org" \
-    "(or with nvm: nvm install 22)"
-  check_present npm "npm ships with Node; reinstall Node to get it back."
-  check_versioned pi "$PI_MIN" \
-    "pi is the agent the pane talks to. Install or update it:" \
-    "curl -fsSL https://pi.dev/install.sh | sh"
+elif ! command -v uvx >/dev/null 2>&1; then
+  fail uvx "not found" "uvx ships with uv; reinstall uv to get it back."
 fi
 
-check_present hython \
-  "hython comes with Houdini but is not on PATH. Run from a Houdini shell, or:" \
-  "cd /opt/hfs22.0 && source houdini_setup"
+# Node only builds the pane UI. Without it the core still runs; the pane page is just missing.
+case $passthrough in
+  *--uninstall*) ;;
+  *)
+    if ! command -v node >/dev/null 2>&1; then
+      warn node "not found" "Node $(dotted "$NODE_MIN")+ builds the pane UI (https://nodejs.org). The UI build will be skipped."
+    elif found=$(parse_version "$(node --version 2>/dev/null)") && ! version_at_least "$found" "$NODE_MIN"; then
+      warn node "found $(dotted "$found"), need $(dotted "$NODE_MIN") or newer to build the pane UI"
+    fi
+    ;;
+esac
 
 if [ "$missing" -gt 0 ]; then
   [ "$missing" -eq 1 ] && what="1 requirement is" || what="$missing requirements are"
@@ -156,8 +122,5 @@ if [ "$missing" -gt 0 ]; then
 fi
 
 [ "$mode" = check ] && exit 0
-
-if [ "$mode" = uninstall ]; then
-  exec uv run --script "$ROOT/scripts/install.py" --uninstall
-fi
-exec uv run --script "$ROOT/scripts/install.py"
+# shellcheck disable=SC2086 # the options are a word list on purpose
+exec uv run --script "$ROOT/scripts/install.py" $passthrough

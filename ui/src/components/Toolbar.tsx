@@ -11,9 +11,12 @@ interface Props {
   tab: Tab;
   onTab: (tab: Tab) => void;
   onModelPicked: () => void;
+  /** Ask for a second opinion on whether the artist and the agent understood each other. */
+  onReview: () => void;
 }
 
-export function Toolbar({ state, status, send, tab, onTab, onModelPicked }: Props) {
+export function Toolbar({ state, status, send, tab, onTab, onModelPicked, onReview }: Props) {
+  const spoke = state.entries.some((entry) => entry.kind === "user");
   return (
     <header className="toolbar">
       <div className="toolbar-row">
@@ -32,10 +35,19 @@ export function Toolbar({ state, status, send, tab, onTab, onModelPicked }: Prop
         </nav>
         <span className="spacer" />
         {status !== "open" && (
-          <span className={`status status-${status}`} data-testid="status" title="Connection to the houdini-pi sidecar">
-            {status === "connecting" ? "connecting to sidecar…" : "sidecar disconnected, reconnecting…"}
+          <span className={`status status-${status}`} data-testid="status" title="Connection to the agent core">
+            {status === "connecting" ? "connecting to the agent core…" : "agent core disconnected, reconnecting…"}
           </span>
         )}
+        <button
+          className="review-button"
+          data-testid="review-button"
+          disabled={!spoke || state.isStreaming || state.reviewing || status !== "open"}
+          onClick={onReview}
+          title="Ask a model from a different family whether you and the agent understood each other"
+        >
+          check understanding
+        </button>
         <ModelPicker
           models={state.models}
           current={state.model}

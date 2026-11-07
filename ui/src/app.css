@@ -150,3 +150,24 @@ button.action .action-icon { font-size: 11px; opacity: 0.8; }
 details.narration { color: var(--muted); font-size: 11px; margin-top: 4px; }
 details.narration summary { cursor: pointer; }
 details.narration .markdown { opacity: 0.8; }
+
+/* Second opinion */
+.review-button { background: none; border: 1px solid #4a4a55; color: var(--fg); border-radius: 6px; padding: 2px 8px; cursor: pointer; }
+.review-button:disabled { opacity: 0.45; cursor: default; }
+.review { border: 1px solid #3a3a45; background: var(--panel); border-radius: 8px; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; }
+.review.verdict-check { border-color: #8a6d1f; }
+.review.verdict-misaligned { border-color: var(--error); }
+.review.verdict-aligned { border-color: #2f6b3f; }
+.review header { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.review .muted { color: var(--muted); font-size: 12px; }
+.review-summary { margin: 0; }
+.chip-verdict { padding: 0 8px; border-radius: 10px; font-size: 12px; }
+.chip-verdict.aligned { background: #1f3a2a; } .chip-verdict.check { background: #4a3d12; } .chip-verdict.misaligned { background: #4a1f1f; }
+.finding { border-top: 1px solid #34343d; padding-top: 6px; }
+.finding p { margin: 2px 0; }
+.finding blockquote { margin: 4px 0; padding-left: 8px; border-left: 3px solid var(--user); color: var(--muted); }
+.finding-head { display: flex; gap: 6px; align-items: center; }
+.badge { padding: 0 6px; border-radius: 4px; font-size: 11px; text-transform: uppercase; background: #34343d; }
+.badge.high { background: #5a2020; } .badge.medium { background: #5a4415; } .badge.low { background: #2d3a4b; }
+.finding-ask { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-top: 4px; font-style: italic; }
+.finding-ask button { flex: none; }

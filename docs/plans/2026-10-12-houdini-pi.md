@@ -361,7 +361,7 @@ Shared by sidecar and ui so they cannot drift.
   refuses foreign file.
 - [ ] `flake.nix`: `packages.sidecar` (`buildNpmPackage`, builds ui + sidecar),
   `packages.houdini-package-json` (the JSON pointing at the store path),
-  `apps.install`. Note for SquatchLinux: home-manager writes
+  `apps.install`. Note for the company NixOS config: home-manager writes
   `~/houdini22.0/packages/houdini_pi.json` from this.
 - [ ] README: requirements, install, pane usage, model selection and auth
   (pi's), file-tools toggle, memory, troubleshooting (black widget, bridge
@@ -382,7 +382,7 @@ Shared by sidecar and ui so they cannot drift.
 
 ## After this plan (other repos)
 
-- **SquatchLinux:** bump `numtide/llm-agents.nix` (pi ≥ 1.x); install
+- **the company NixOS config:** bump `numtide/llm-agents.nix` (pi ≥ 1.x); install
   houdini-pi via its flake; write the package JSON from home-manager.
 - **Squatch:** `art/launch-houdini`, `.config/ensure-houdini-mcp`,
   `.config/houdini-mcp`, devctl's Houdini desktop entry → discover Houdini via

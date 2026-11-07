@@ -1,6 +1,5 @@
 import importlib.util
 import json
-import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -13,7 +12,7 @@ SH = shutil.which("sh")
 
 def load():
     path = ROOT / "scripts" / "install.py"
-    spec = importlib.util.spec_from_loader("houdini_pi_install", loader=None)
+    spec = importlib.util.spec_from_loader("tech_art_install", loader=None)
     module = importlib.util.module_from_spec(spec)
     module.__file__ = str(path)
     exec(compile(path.read_text(), str(path), "exec"), module.__dict__)
@@ -32,61 +31,61 @@ def check(tmp_path: Path, tools: dict[str, str], *args: str) -> subprocess.Compl
     return subprocess.run([SH, str(ROOT / "install"), "--check", *args], env=env, capture_output=True, text=True)
 
 
-ALL = {"uv": "uv 0.11.2", "uvx": "uv 0.11.2", "node": "v22.23.3", "npm": "10.9.0", "pi": "pi 1.1.0 (abc)", "hython": "x"}
+ALL = {"uv": "uv 0.11.2", "uvx": "uv 0.11.2", "node": "v22.23.3", "npm": "10.9.0"}
 
 
-def failed(result: subprocess.CompletedProcess) -> list[str]:
+def problems(result: subprocess.CompletedProcess) -> list[str]:
     return [line.split()[1] for line in result.stdout.splitlines() if line.lstrip().startswith("✗")]
 
 
-def test_all_present_passes(tmp_path: Path):
+def warnings(result: subprocess.CompletedProcess) -> list[str]:
+    return [line.split()[1] for line in result.stdout.splitlines() if line.lstrip().startswith("!")]
+
+
+def test_all_present_passes_silently(tmp_path: Path):
     result = check(tmp_path, ALL)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert failed(result) == []
-    assert "22.23.3" in result.stdout and "1.1.0" in result.stdout
+    assert result.stdout == ""
 
 
-def test_nothing_installed_names_everything_at_once(tmp_path: Path):
+def test_only_uv_is_required_and_it_is_named_with_how_to_get_it(tmp_path: Path):
     result = check(tmp_path, {})
     assert result.returncode == 1
-    assert failed(result) == ["uv", "node", "npm", "pi", "hython"]
+    assert problems(result) == ["uv"]
     assert "astral.sh/uv/install.sh" in result.stdout
-    assert "5 requirements are missing" in result.stderr
+    assert "1 requirement is missing" in result.stderr
 
 
-def test_old_versions_are_reported_with_what_was_found(tmp_path: Path):
-    result = check(tmp_path, {**ALL, "node": "v22.18.9", "pi": "0.87.1"})
-    assert result.returncode == 1
-    assert failed(result) == ["node", "pi"]
-    assert "found 22.18.9, need 22.19.0 or newer" in result.stdout
-    assert "found 0.87.1, need 1.0.0 or newer" in result.stdout
+def test_missing_or_old_node_is_a_warning_not_a_failure(tmp_path: Path):
+    missing = check(tmp_path, {k: v for k, v in ALL.items() if k not in ("node", "npm")})
+    assert missing.returncode == 0 and warnings(missing) == ["node"] and "UI build will be skipped" in missing.stdout
+    old = check(tmp_path, {**ALL, "node": "v22.18.9"})
+    assert old.returncode == 0 and "found 22.18.9, need 22.19.0 or newer" in old.stdout
 
 
 def test_uv_installed_but_off_path_says_so(tmp_path: Path):
-    tools = dict(ALL)
-    del tools["uv"]
+    tools = {k: v for k, v in ALL.items() if k != "uv"}
     local_bin = tmp_path / "home" / ".local" / "bin"
     local_bin.mkdir(parents=True)
     (local_bin / "uv").write_text(f"#!{SH}\n")
     (local_bin / "uv").chmod(0o755)
     result = check(tmp_path, tools)
-    assert failed(result) == ["uv"]
+    assert problems(result) == ["uv"]
     assert f"installed at {local_bin / 'uv'} but not on PATH" in result.stdout
 
 
 def test_unknown_option_is_refused(tmp_path: Path):
     result = check(tmp_path, ALL, "--bogus")
-    assert result.returncode == 2
-    assert "unknown option '--bogus'" in result.stderr
+    assert result.returncode == 2 and "unknown option '--bogus'" in result.stderr
 
 
-def test_package_json_points_at_the_repo(tmp_path: Path):
+def test_package_json_puts_the_repo_on_houdinis_path(tmp_path: Path):
     m = load()
-    target = m.write_package(tmp_path / "packages", ROOT, node="/nix/store/x/bin/node", uvx="/nix/store/y/bin/uvx")
+    target = m.write_package(tmp_path / "packages", ROOT)
     data = json.loads(target.read_text())
     assert data[m.MARKER] is True
-    assert data["env"] == [{"HOUDINI_PI_ROOT": str(ROOT)}, {"HOUDINI_PI_NODE": "/nix/store/x/bin/node"}, {"HOUDINI_PI_UVX": "/nix/store/y/bin/uvx"}]
-    assert data["path"] == "$HOUDINI_PI_ROOT/houdini"
+    assert data["env"] == [{"TECH_ART_AGENT_ROOT": str(ROOT)}]
+    assert data["path"] == "$TECH_ART_AGENT_ROOT/houdini"
     assert m.remove_package(tmp_path / "packages") is True
     assert m.remove_package(tmp_path / "packages") is False
 
@@ -102,19 +101,26 @@ def test_refuses_to_touch_a_foreign_package_file(tmp_path: Path):
         m.remove_package(packages)
 
 
-def test_package_json_keeps_the_path_entry_not_the_store_path_behind_it(tmp_path: Path):
-    # On NixOS /run/current-system/sw/bin/node is a symlink into a store path that a
-    # node update plus a garbage collection deletes; Houdini must get the PATH name.
+def test_the_install_record_tells_an_app_how_to_start_the_core_and_keeps_other_keys(tmp_path: Path):
     m = load()
-    store = tmp_path / "store" / "nodejs-24" / "bin"
-    store.mkdir(parents=True)
-    (store / "node").write_text("")
-    profile = tmp_path / "sw" / "bin"
-    profile.mkdir(parents=True)
-    (profile / "node").symlink_to(store / "node")
-    data = m.package_json(ROOT, node=str(profile / "node"), uvx=str(profile / "uvx"))
-    assert {"HOUDINI_PI_NODE": str(profile / "node")} in data["env"]
-    assert {"HOUDINI_PI_UVX": str(profile / "uvx")} in data["env"]
+    (tmp_path / "install.json").write_text(json.dumps({"keep": "me"}))
+    file = m.write_install_record(tmp_path, ROOT, "/bin/uv", "/bin/uvx")
+    record = json.loads(file.read_text())
+    assert record["core"] == ["/bin/uv", "run", "--project", str(ROOT / "core"), "tech-art-core"]
+    assert record["keep"] == "me" and record["uvx"] == "/bin/uvx"
+    # ...and the connector reads exactly this.
+    import sys
+
+    sys.path.insert(0, str(ROOT / "python"))
+    from tech_art_agent.core_launch import core_command
+
+    assert core_command({"TECH_ART_AGENT_HOME": str(tmp_path)}) == record["core"]
+    assert m.remove_install_record(tmp_path) is True and m.remove_install_record(tmp_path) is False
+
+
+def test_the_bridge_is_unpinned_so_it_floats_on_latest():
+    m = load()
+    assert "@" not in m.BRIDGE_SPEC.split("//", 1)[1]
 
 
 def test_bridge_root_reads_the_fxhoudinimcp_package_file():
@@ -124,8 +130,18 @@ def test_bridge_root_reads_the_fxhoudinimcp_package_file():
 
 
 def test_a_bridge_inside_uvs_cache_is_detected(tmp_path: Path):
-    # What upstream's `uvx --from … houdini-package` writes: a path `uv cache clean` deletes.
     m = load()
     cache, tools = tmp_path / "cache", tmp_path / "tools"
     assert m.is_inside(cache / "archive-v0" / "abc" / "fxhoudinimcp" / "houdini", cache)
     assert not m.is_inside(tools / "fxhoudinimcp" / "houdini", cache)
+
+
+def test_the_installer_turns_on_the_public_repo_commit_hook(tmp_path: Path):
+    m = load()
+    (tmp_path / ".githooks").mkdir()
+    (tmp_path / ".githooks" / "pre-commit").write_text("#!/bin/sh\n")
+    assert m.enable_git_hooks(tmp_path) is False  # not a git checkout: nothing to configure
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    assert m.enable_git_hooks(tmp_path) is True
+    out = subprocess.run(["git", "config", "core.hooksPath"], cwd=tmp_path, capture_output=True, text=True).stdout.strip()
+    assert out == ".githooks"
