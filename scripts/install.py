@@ -3,15 +3,17 @@
 # requires-python = ">=3.12"
 # dependencies = []
 # ///
-"""Install houdini-pi into this user's Houdini: build, install the bridge, write the package JSON.
+"""Install the tech-art agent into this user's apps: build the pane UI, record how to start the core, set up Houdini / Blender.
 
-Run it through ./install, which checks the requirements first; this script
-assumes they are met.
+Run it through ./install, which checks the requirements first.
 
-    ./install              # install or update
-    ./install --uninstall  # remove the package file this script wrote
+    ./install                # everything that is present on this machine
+    ./install --houdini      # only Houdini
+    ./install --blender      # only Blender
+    ./install --skip-ui      # do not build the pane UI
+    ./install --uninstall    # remove what this script wrote
 
-Never overwrites a package file it did not write itself.
+Never overwrites a Houdini package file it did not write itself. On NixOS use the flake's module instead.
 """
 
 from __future__ import annotations
@@ -25,11 +27,15 @@ from collections.abc import Callable
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "python"))
+from tech_art_agent.paths import state_dir  # noqa: E402
+
 MARKER = "_houdini_pi_installer"
 PACKAGE_NAME = "houdini_pi.json"
-# The fxhoudinimcp release the sidecar is written against: the bridge on 127.0.0.1:8100.
-BRIDGE_SPEC = "git+https://github.com/healkeiser/fxhoudinimcp@v2.25.0"
+# The MCP servers float on latest while we develop; flip to a tag/ref here (and in settings.json) when deploys begin.
+BRIDGE_SPEC = "git+https://github.com/healkeiser/fxhoudinimcp"
 BRIDGE_PACKAGE_NAME = "fxhoudinimcp.json"
+BLENDER_REPO_URL = "https://mortoc.github.io/mortocs-tech-art-agent/blender/index.json"
 
 Runner = Callable[[list[str]], str | None]
 
@@ -48,23 +54,13 @@ def houdini_pref_dir(run: Runner = run_output) -> Path:
     return Path(out.splitlines()[-1].strip())
 
 
-def package_json(root: Path, node: str | None = None, uvx: str | None = None) -> dict:
-    template = json.loads((root / "houdini" / "houdini_pi.json").read_text())
-    data = json.loads(json.dumps(template).replace("__HOUDINI_PI_ROOT__", str(root)))
-    # Houdini's PATH is not the shell's: pin the Node and uvx this install validated.
-    # As found on PATH, NOT resolved: on NixOS `node` is /run/current-system/sw/bin/node,
-    # a symlink into a store path that a node update plus a garbage collection deletes.
-    # The PATH entry is the stable name; the store path behind it is not.
-    uvx = uvx or shutil.which("uvx")
-    node = node or shutil.which("node")
-    if node:
-        data["env"].append({"HOUDINI_PI_NODE": node})
-    if uvx:
-        data["env"].append({"HOUDINI_PI_UVX": uvx})
-    return data
+def package_json(root: Path) -> dict:
+    """Houdini's package file: the repo's houdini/ directory on the path. The shared client library (python/)
+    is found by houdini_pi itself, as a sibling of houdini/."""
+    return {MARKER: True, "env": [{"TECH_ART_AGENT_ROOT": str(root)}], "path": "$TECH_ART_AGENT_ROOT/houdini"}
 
 
-def write_package(packages_dir: Path, root: Path, node: str | None = None, uvx: str | None = None) -> Path:
+def write_package(packages_dir: Path, root: Path) -> Path:
     target = packages_dir / PACKAGE_NAME
     if target.exists():
         try:
@@ -74,7 +70,7 @@ def write_package(packages_dir: Path, root: Path, node: str | None = None, uvx: 
         if existing.get(MARKER) is not True:
             raise SystemExit(f"install: {target} exists and was not written by this installer; move it aside first.")
     packages_dir.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(package_json(root, node, uvx), indent=2) + "\n")
+    target.write_text(json.dumps(package_json(root), indent=2) + "\n")
     return target
 
 
@@ -82,10 +78,30 @@ def remove_package(packages_dir: Path) -> bool:
     target = packages_dir / PACKAGE_NAME
     if not target.exists():
         return False
-    data = json.loads(target.read_text())
-    if data.get(MARKER) is not True:
+    if json.loads(target.read_text()).get(MARKER) is not True:
         raise SystemExit(f"install: {target} was not written by this installer; not removing it.")
     target.unlink()
+    return True
+
+
+def write_install_record(directory: Path, root: Path, uv: str, uvx: str) -> Path:
+    """`install.json` in the state directory: how an app can start the core when no systemd socket does it."""
+    file = directory / "install.json"
+    try:
+        record = json.loads(file.read_text())
+    except (OSError, ValueError):
+        record = {}
+    record.update({"root": str(root), "uvx": uvx, "core": [uv, "run", "--project", str(root / "core"), "tech-art-core"]})
+    directory.mkdir(parents=True, exist_ok=True)
+    file.write_text(json.dumps(record, indent=2) + "\n")
+    return file
+
+
+def remove_install_record(directory: Path) -> bool:
+    file = directory / "install.json"
+    if not file.exists():
+        return False
+    file.unlink()
     return True
 
 
@@ -108,13 +124,12 @@ def is_inside(path: Path, directory: Path) -> bool:
 def install_bridge(packages_dir: Path, run: Runner = run_output) -> Path:
     """Install the fxhoudinimcp bridge as a uv TOOL and write its Houdini package from there.
 
-    Not `uvx --from … houdini-package`, which upstream's README suggests: uvx runs from
-    uv's cache, so the package file it writes points into ~/.cache/uv/archive-v0/…, and
-    `uv cache clean` or `prune` deletes the bridge out from under Houdini. A uv tool
-    lives at a stable path (`uv tool dir`) until it is uninstalled.
+    Not `uvx --from … houdini-package`: uvx runs from uv's cache, so the package file it writes points into
+    ~/.cache/uv/archive-v0/…, and `uv cache clean` deletes the bridge out from under Houdini. A uv tool lives at a
+    stable path until it is uninstalled. `--upgrade` keeps it on latest.
     """
-    print(f"[install] uv tool install {BRIDGE_SPEC}")
-    if subprocess.run(["uv", "tool", "install", BRIDGE_SPEC]).returncode != 0:
+    print(f"[install] uv tool install --upgrade {BRIDGE_SPEC}")
+    if subprocess.run(["uv", "tool", "install", "--upgrade", BRIDGE_SPEC]).returncode != 0:
         raise SystemExit("install: could not install the fxhoudinimcp bridge with uv tool install")
     tool_bin, cache = run(["uv", "tool", "dir", "--bin"]), run(["uv", "cache", "dir"])
     if not tool_bin or not cache:
@@ -129,29 +144,94 @@ def install_bridge(packages_dir: Path, run: Runner = run_output) -> Path:
     return target
 
 
-def build(root: Path):
+def install_blender_extension(root: Path, blender: str | None = None, runner=subprocess.run) -> Path | None:
+    """Install (or update) the extension from the zip built into this checkout, and enable it.
+
+    The remote repository is served by GitHub Pages from `main`, so it only has an extension once a change is merged. Installing
+    from the zip works on any branch and offline; once the repository is added in Blender, its updates take over.
+    Returns the zip that was installed, or None when it could not be."""
+    blender = blender or shutil.which("blender")
+    zips = sorted((root / "docs" / "blender").glob("tech_art_agent-*.zip"))
+    if blender is None or not zips:
+        print("[install] Blender or docs/blender/*.zip not found: skipping the extension (build it with scripts/build_blender.py)")
+        return None
+    zip_file = zips[-1]
+    argv = [blender, "--background", "--command", "extension", "install-file", "--repo", "user_default", "--enable", str(zip_file)]
+    print(f"[install] {' '.join(argv[:1] + argv[3:5])} {zip_file.name} (user_default repository)")
+    return zip_file if runner(argv).returncode == 0 else None
+
+
+def enable_blender_addon(module: str = "blender_mcp", blender: str | None = None, runner=subprocess.run) -> bool:
+    """Enable a legacy add-on by its module name and save Blender's preferences.
+
+    `mcp-for-blender install-addon` only copies the file ("disable then enable it in Preferences"); its `setup` command would
+    enable it too, but also rewrites the config of every AI client it finds, which we do not want."""
+    blender = blender or shutil.which("blender")
+    if blender is None:
+        return False
+    expr = f"import bpy; bpy.ops.preferences.addon_enable(module={module!r}); bpy.ops.wm.save_userpref()"
+    return runner([blender, "--background", "--python-expr", expr]).returncode == 0
+
+
+def enable_git_hooks(root: Path) -> bool:
+    """Point this checkout's git at .githooks, whose pre-commit refuses secrets and company data (the repo is public)."""
+    if not (root / ".git").exists() or not (root / ".githooks" / "pre-commit").exists():
+        return False
+    return subprocess.run(["git", "config", "core.hooksPath", ".githooks"], cwd=root).returncode == 0
+
+
+def build_ui(root: Path) -> bool:
+    """Build the pane UI if Node is here. False: skipped (the core still runs; only the pane page is missing)."""
+    if not (shutil.which("node") and shutil.which("npm")):
+        print("[install] node/npm not found: skipping the pane UI build")
+        return False
     for argv in (["npm", "ci"], ["npm", "run", "build"]):
         print(f"[install] {' '.join(argv)}")
         if subprocess.run(argv, cwd=root).returncode != 0:
             raise SystemExit(f"install: {' '.join(argv)} failed")
+    return True
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--uninstall", action="store_true")
+    parser.add_argument("--houdini", action="store_true")
+    parser.add_argument("--blender", action="store_true")
+    parser.add_argument("--skip-ui", action="store_true", help="do not build the pane UI (no Node here, or it is already built)")
     args = parser.parse_args(argv)
+    chosen = args.houdini or args.blender
+    want_houdini = args.houdini or (not chosen and shutil.which("hython") is not None)
+    want_blender = args.blender or (not chosen and shutil.which("blender") is not None)
 
     if args.uninstall:
-        removed = remove_package(houdini_pref_dir() / "packages")
-        print("[install] removed" if removed else "[install] nothing to remove")
+        if want_houdini and shutil.which("hython"):
+            print("[install] removed the Houdini package" if remove_package(houdini_pref_dir() / "packages") else "[install] no Houdini package to remove")
+        print("[install] removed the install record" if remove_install_record(state_dir()) else "[install] no install record to remove")
+        print("[install] Blender: remove the extension in Preferences > Get Extensions (and the repository, if you added it).")
         return 0
 
-    build(ROOT)
-    packages = houdini_pref_dir() / "packages"
-    print(f"[install] wrote {install_bridge(packages)}")
-    target = write_package(packages, ROOT)
-    print(f"[install] wrote {target}")
-    print("[install] done. In Houdini: houdini-pi > Open Agent Pane")
+    if enable_git_hooks(ROOT):
+        print("[install] enabled the pre-commit secrets check (git config core.hooksPath .githooks)")
+    if not args.skip_ui:
+        build_ui(ROOT)
+    uv, uvx = shutil.which("uv") or "uv", shutil.which("uvx") or "uvx"
+    print(f"[install] wrote {write_install_record(state_dir(), ROOT, uv, uvx)}")
+    if want_houdini:
+        packages = houdini_pref_dir() / "packages"
+        print(f"[install] wrote {install_bridge(packages)}")
+        print(f"[install] wrote {write_package(packages, ROOT)}")
+    if want_blender:
+        if install_blender_extension(ROOT) is None:
+            print("[install] could not install the Tech Art Agent extension into Blender; see above.")
+        print("[install] uvx mcp-for-blender install-addon")
+        if subprocess.run([uvx, "mcp-for-blender", "install-addon"]).returncode != 0:
+            print("[install] could not install the mcp-for-blender add-on; install it from its own instructions.")
+        elif enable_blender_addon():
+            print("[install] enabled the MCP for Blender add-on (its server starts with Blender)")
+        else:
+            print("[install] installed the MCP for Blender add-on but could not enable it: Preferences > Add-ons > enable 'MCP for Blender'")
+        print(f"[install] For updates, Blender: Preferences > Get Extensions > Repositories > + > Add Remote Repository:\n[install]   {BLENDER_REPO_URL}")
+    print("[install] done. Start the core with `cd core && uv run tech-art-core`, or just open Houdini/Blender: they start it.")
     return 0
 
 

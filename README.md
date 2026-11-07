@@ -1,127 +1,115 @@
-# houdini-pi
+# mortocs-tech-art-agent
 
-A chat agent inside Houdini. A dockable **Houdini Agent** pane talks to the
-LLM of your choice, which edits the live scene through
-[fxhoudinimcp](https://github.com/healkeiser/fxhoudinimcp). The agent is
-[pi](https://github.com/badlogic/pi-mono), run by a local sidecar. Every turn
-is one undo step; the agent looks at its own renders, follows along in your
-panes, and keeps a project memory inside the `.hip`.
+One agent that works inside your DCC apps. **Houdini** and **Blender** (and later a game) connect to a small local
+**core** service; you chat with it in a pane inside the app, and it edits the live scene through that app's own tools.
+Every turn is one undo step, it looks at its own renders, and it keeps notes in the scene file.
 
-Help page: <https://mortoc.github.io/houdini-pi/help> (the pane's **?**).
+```
+ Houdini ─┐                       ┌── chat pane (React, in the app or a browser)
+ Blender ─┼── connect ──►  core  ─┼── model: OpenRouter, or a local server (Ollama, LM Studio, llama.cpp…)
+ game    ─┘   (+ pub/sub)         └── tools: fxhoudinimcp, mcp-for-blender, Notion
+```
 
-## Requirements
+Design notes: [docs/specs/2026-11-03-core-and-clients.md](docs/specs/2026-11-03-core-and-clients.md).
 
-| | version | notes |
-|---|---|---|
-| Houdini | 22.0+ | Python 3.13 with QtWebEngine, as shipped |
-| Node | 22.19+ | runs the sidecar; pinned into the package file at install, so Houdini's PATH does not matter |
-| pi | 1.x | the agent; log in once (`pi`, then `/login`) or set a provider key |
-| uv | any | runs the fxhoudinimcp MCP server via `uvx` |
+## The core
 
-## Install
+`core/` is Python: FastAPI, pydantic-ai, Logfire. One per user; apps connect to it over a WebSocket, register their
+tools, and can pub/sub messages through it, so the agent in one app can see and call the others.
 
-1. This plugin, and the fxhoudinimcp bridge it drives:
+```
+cd core && uv run tech-art-core        # 127.0.0.1:9100, state in ~/.tech-art-agent
+```
 
-   ```
-   git clone https://github.com/Mortoc/houdini-pi ~/houdini-pi
-   cd ~/houdini-pi && ./install
-   ```
+- **Models: the [Pydantic AI Gateway](https://pydantic.dev/docs/ai/overview/gateway/), and only that.** One key
+  (`PYDANTIC_AI_GATEWAY_API_KEY`, made in Logfire under the organization's Gateway settings) with per-key spend limits,
+  every call traced, and the real cost of each call shown in the pane. It reaches OpenAI, Anthropic and Google directly,
+  and anything on OpenRouter once OpenRouter is added there as a custom (BYOK) provider; see *Setting up the gateway* in
+  [docs/help.md](docs/help.md). The gateway has no model-list endpoint, so the model menu is `gateway.models` in settings;
+  **`tech-art-core probe`** tries each one with a tiny request (text, an image, a tool call) and prints what works.
+  Local OpenAI-compatible servers (Ollama and friends) work with no internet through `providers`.
+  **For now there are two models, both through the gateway: Claude Haiku 5.5 (the agent, naming) and GPT-6 Luna (the
+  other-family reviewer, and a second agent to try)**, both cheap and both see images, so nothing needs the OpenRouter
+  connection yet. Local models (Macs, Strix Halo) are a later `providers` route. The intended working agent is DeepSeek's newest Flash
+  (`deepseek-v4.1-flash-1017`, a dated snapshot, through the gateway's OpenRouter endpoint: it sees images, has a 1M
+  context and costs a fraction of a frontier model): deliberately not Claude and deliberately modest, because a weaker model
+  with a different architecture exposes where our documentation and Houdini techniques are vague. Setting that up is one
+  settings change once the endpoint exists (*Setting up the gateway* in [docs/help.md](docs/help.md)).
+- **Second opinion.** **check understanding** in the pane's toolbar sends the conversation (what you asked, what the agent
+  said and did) to a model from a *different family* than the agent (Luna reviews Haiku and Haiku reviews Luna while `review.model` is unset) and shows where the two of you
+  may have meant different things: an ambiguity resolved silently, an unconfirmed assumption, scope drift, a term read in
+  the wrong app's sense. Each finding has the one question that would settle it, with an *answer this* button. Set
+  `review.auto` to run it by itself every `review.every` messages; `review.model` pins the reviewer.
+- **Tools.** The model's app tools come from MCP servers the core runs through `uvx`: `fxhoudinimcp` and
+  `mcp-for-blender`. They float on latest while we develop; pin one with `mcp.<host>.ref` in settings. Notion is
+  configured by default; sign in once with `tech-art-core auth notion`.
+- **No file or shell tool.** The agent writes only through memory tools (scene, project, user) that write fixed places.
+- **When something is unreachable** the pane says what and why in plain words and offers *try again*: a local model
+  server that isn't running ("Is it running? Ollama: `ollama serve`"), a hosted provider that can't be reached, a bad
+  API key, a rate limit. A tool server that can't be reached is skipped with a notice instead of ending the turn.
+- **Traces.** Logfire (`LOGFIRE_TOKEN`; local-only without it).
 
-   `./install` checks the requirements (and names what is missing), builds the
-   sidecar and UI, installs the fxhoudinimcp bridge as a `uv tool`, and writes
-   `~/houdini22.0/packages/houdini_pi.json`; `./install --uninstall` removes
-   that file. The bridge goes in as a `uv tool` rather than upstream's
-   `uvx --from … houdini-package` one-liner, which writes a package file
-   pointing into uv's cache, where `uv cache clean` deletes it.
+### NixOS
 
-2. Start Houdini. **Windows ▸ Squatch Studios ▸ Houdini Agent**, or add a
-   **Houdini Agent** tab to any pane (New Pane Tab Type ▸ Houdini Agent).
+```nix
+inputs.tech-art-agent.url = "github:Mortoc/mortocs-tech-art-agent";
+# ...
+imports = [ inputs.tech-art-agent.nixosModules.default ];
+services.tech-art-agent = {
+  enable = true;
+  environmentFile = config.sops.secrets."tech-art-agent.env".path;   # PYDANTIC_AI_GATEWAY_API_KEY=...
+};
+```
 
-NixOS: `nix build .#houdini-pi` builds the plugin and `.#houdini-pi-package-json`
-is the package file to install with home-manager.
+A socket-activated user service: nothing runs until an app connects, it exits after 10 idle minutes, and its disk
+access is confined to its state directory. The only GitHub secret this repo needs is the sops age key.
 
-## Using it
+### Elsewhere
 
-- **Ask for a change** and watch it happen. Tool cards show each step; a green
-  **Done** ends the turn. **■ stop** halts it; **↶ Undo** then reverts the turn
-  in Houdini and puts your message back in the box. One Ctrl-Z also reverts a
-  whole turn.
-- **Ask a question** ("how do I…") and you get an answer block with buttons
-  that select the node, show the parameter, jump to the network, open a pane or
-  a help page.
-- **Reference things** by dragging nodes or parameters from any pane onto the
-  chat; they become chips on your next message.
-- **Follow along**: the node the agent touches becomes the selection. Put the
-  Pi tab in the same **Link Pane Tab** group (Houdini's own pane control) as a
-  network editor and parameter view, and they jump with it.
-- **Renders**: after editing a Copernicus network the agent renders its output
-  and checks the image before finishing (thumbnail in the card, click to
-  expand). It can screenshot the viewport the same way.
-- **Backups**: a Houdini backup is written before the first edit of each turn.
-- **Memory tab**: markdown stored in the hip and shown to the agent every turn.
-  Decisions, conventions, node roles. Edit it directly.
-- **Sessions tab**: this hip's earlier conversations. The list is stored in the
-  hip, so Save As carries it to the new file. Opening the pane always starts a
-  new conversation. The toolbar shows what the conversation has cost so far.
-- **Models**: searchable picker; only image-capable models are listed. Your
-  current model is first, then **Recommended** (the `defaultModel` list below),
-  then the rest. New conversations start on the first recommended model pi can
-  use, marked **(Default)**.
+`./install` builds the pane UI, records how to start the core in `~/.tech-art-agent/install.json` (so apps can start
+it themselves), and sets up Houdini and/or Blender if they are on this machine. It needs `uv`; Node is optional.
+
+## Houdini
+
+Installed by `./install` (a package file pointing at this repo's `houdini/`; the fxhoudinimcp bridge goes in as a
+`uv tool`). When Houdini starts it connects to the core. **Windows ▸ Squatch Studios ▸ Houdini Agent** opens the pane.
+
+**Hot reload.** **Windows ▸ Squatch Studios ▸ Reload Agent** (or `import houdini_pi; houdini_pi.reload()`) reloads this
+package and the shared client library without restarting Houdini, and re-creates open panes. The core sees the same
+Houdini come back, so the conversation continues. To reload the core itself, restart it: apps and panes reconnect on
+their own and pick up the conversation where it was.
+
+## Blender
+
+`./install --blender` does all of it: it installs the **Tech Art Agent** extension from this checkout's built zip (so it works
+on any branch, offline), installs the `mcp-for-blender` add-on that supplies the agent's Blender tools and **enables** it
+(its server starts with Blender). Then: 3D Viewport sidebar (N) ▸ **Agent** ▸ **Open Agent**.
+
+For updates without a checkout: Preferences ▸ Get Extensions ▸ Repositories ▸ **+** ▸ Add Remote Repository,
+`https://mortoc.github.io/mortocs-tech-art-agent/blender/index.json` (the repository is served by GitHub Pages from `main`, so
+it has the extension once a change is merged). After changing `blender/` or `python/`: `scripts/build_blender.py`.
+
+The agent is given four of the add-on's tools (`execute_blender_code`, `get_scene_info`, `get_addon_status`, `look`). The other
+five send data to third parties (its telemetry backend, 3D-generation and asset services) and are excluded; opt in with
+`mcp.blender.exclude` in settings. Telemetry is switched off in the add-on's server regardless.
+
+Not yet in Blender: *Undo turn* (Blender gives no way to find where a turn began in its undo stack).
 
 ## Settings
 
-`~/.houdini-pi/settings.json`, all optional:
-
-```json
-{
-  "defaultModel": ["openrouter/deepseek/deepseek-v4-flash-vision-exp", "openrouter/deepseek/deepseek-v4.1-flash"],
-  "naming": { "model": "cheapest", "renameAtUserMessages": [1, 5] },
-  "followNodes": true,
-  "pane": { "softwareRender": false }
-}
-```
-
-- `defaultModel`: first available wins; a resumed conversation keeps its own.
-- `naming`: which model names conversations, and after which user messages.
-- `followNodes`: selection and linked panes follow the agent.
-- `pane.softwareRender`: render the pane without the GPU (also
-  `HOUDINI_PI_SOFTWARE_RENDER=1`). For a black pane, or when the GPU is full.
-
-## From the terminal
-
-The same workflow in the pi CLI:
-
-```
-pi install git:github.com/Mortoc/houdini-pi
-HOUDINI_PI_PORT=8100 pi
-```
-
-Adds `/scene`, `/memory`, `/undo-turn`, `/inspect-cop <node>`; the fxhoudini
-MCP server is registered automatically.
-
-## Troubleshooting
-
-- **Starting the houdini-pi sidecar…** never finishes: the pane shows the end of
-  `~/.houdini-pi/sidecar-<port>.log` after 30 s.
-- **no Houdini bridge**: the fxhoudinimcp plugin is not loaded. Re-run `./install`, then restart Houdini.
-- **login** notice: run `pi` in a terminal and `/login`.
-- **Black pane**: set `pane.softwareRender` (above).
+`~/.tech-art-agent/settings.json` (an existing `~/.houdini-pi/` keeps being used), shared by every app, all optional:
+`defaultModel`, `providers`, `gateway`, `review`, `naming`, `followNodes`, `pane.softwareRender`, `layout.autoLayout`, `mcp`, `mcpServers`,
+`idleTimeout`. Schema: `core/src/tech_art_core/settings.py`.
 
 ## Development
 
 ```
-nix develop                          # or Node 22, uv, Python 3.12 on PATH
-npm ci
-npm test                             # vitest
-npm run test:py                      # pytest
-npm run build && npm run test:e2e    # Playwright against the fake-agent sidecar
+uv run --project core pytest              # everything Python (real Blender/Houdini tests skip if absent)
+npm ci && npm run typecheck && npm test   # the pane UI
+npm run build && npm run test:e2e         # the pane in a browser, against the real core and a fake local model
 ```
 
-UI with hot reload: `node sidecar/dist/src/index.js --fake-agent --port 9123 --token dev`,
-then `npm run dev -w ui` and open `http://127.0.0.1:5173/?token=dev`.
-
-Manual checks on a real Houdini: [docs/manual-e2e.md](docs/manual-e2e.md).
-Design: [docs/specs/](docs/specs/).
+On NixOS, `nix develop` gives Python, uv and Node. Real-app tests need `blender` / `hython` on PATH.
 
 ## License
 

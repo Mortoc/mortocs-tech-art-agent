@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""Which Bedrock models can this AWS account call, what do they cost, and will the Pydantic AI Gateway serve them?
+
+    aws bedrock list-foundation-models --region us-west-2 --output json \
+      | uv run --project core python scripts/bedrock-models [--geo us] [--images] [--grep REGEX] [--all]
+
+AWS's own listing has no prices. The gateway refuses models it has no prices for, and its price list is the `aws` provider in
+`genai-prices` (bundled with pydantic-ai), so joining your listing with that data answers both questions. Prices are USD per
+million tokens (input / output). Read-only; it only reads what you pipe in.
+
+A model with ON_DEMAND is called by its id; one that is INFERENCE_PROFILE-only is called as `<geo>.<id>` (geo: us, eu, apac).
+Use the result as `gateway/bedrock/<callable id>` (settings, or `tech-art-core probe --model ...`).
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+
+
+def price_table():
+    from genai_prices import data_snapshot
+
+    aws = next(p for p in data_snapshot.get_snapshot().providers if p.id == "aws")
+    return {m.id: m for m in aws.models}
+
+
+def per_million(model) -> tuple[float, float] | None:
+    """(input, output) USD per million tokens, or None when the price list has no flat figure for it."""
+    prices = model.prices
+    if isinstance(prices, list):  # conditional prices: rules are in date order, the last is the current one
+        prices = prices[-1].prices if prices else None
+    if prices is None:
+        return None
+
+    def flat(value):
+        value = getattr(value, "base", value)  # tiered prices keep their base rate in `.base`
+        return None if value is None else float(value)
+
+    inp, out = flat(getattr(prices, "input_mtok", None)), flat(getattr(prices, "output_mtok", None))
+    return None if inp is None or out is None else (inp, out)
+
+
+def find_price(model_id: str, geo: str, table: dict):
+    """The price-list entry for an AWS model id, trying the spellings Bedrock uses (context suffix, geo prefix)."""
+    base = re.sub(r"(:\d+):\d+k$", r"\1", model_id)  # amazon.titan-text-express-v1:0:8k -> ...:0
+    for key in (model_id, base, f"{geo}.{base}", f"global.{base}", f"regional.{base}"):
+        if key in table:
+            return key, table[key]
+    return None, None
+
+
+def callable_id(summary: dict, geo: str) -> str | None:
+    types = set(summary.get("inferenceTypesSupported") or [])
+    if "ON_DEMAND" in types:
+        return summary["modelId"]
+    if "INFERENCE_PROFILE" in types:
+        return f"{geo}.{summary['modelId']}"
+    return None  # provisioned throughput only: needs an ARN, not a plain id
+
+
+def rows(payload: dict, geo: str, table: dict, images: bool, pattern: str | None, everything: bool):
+    for s in payload.get("modelSummaries", []):
+        if not everything and ("TEXT" not in s.get("outputModalities", []) or (s.get("modelLifecycle") or {}).get("status") == "LEGACY"):
+            continue
+        if images and "IMAGE" not in s.get("inputModalities", []):
+            continue
+        line = f"{s.get('providerName', '')} {s.get('modelName', '')} {s['modelId']}"
+        if pattern and not re.search(pattern, line, re.I):
+            continue
+        key, entry = find_price(s["modelId"], geo, table)
+        flat = per_million(entry) if entry is not None else None
+        yield {
+            "maker": s.get("providerName", ""), "name": s.get("modelName", ""), "id": callable_id(s, geo), "aws_id": s["modelId"],
+            "image": "IMAGE" in s.get("inputModalities", []), "priced": entry is not None, "price": flat,
+            "types": ",".join(t[:4] for t in s.get("inferenceTypesSupported", [])),
+        }
+
+
+def render(found: list[dict]) -> str:
+    found = sorted((r for r in found if r["price"]), key=lambda r: (-r["price"][1], -r["price"][0], r["name"].lower()))  # dearest output first; unpriced skipped
+    lines = [f"{'maker':<14}{'model':<34}{'img':<4}{'$/M in':>8}{'$/M out':>9}  {'gateway':<8}callable id"]
+    for r in found:
+        price = ("-", "-") if not r["price"] else (f"{r['price'][0]:g}", f"{r['price'][1]:g}")
+        gateway = "yes" if r["priced"] and r["id"] else ("no price" if r["id"] else "ARN only")
+        lines.append(f"{r['maker'][:13]:<14}{r['name'][:33]:<34}{'yes' if r['image'] else '-':<4}{price[0]:>8}{price[1]:>9}  {gateway:<8}{r['id'] or '(provisioned throughput)'}")
+    served = sum(1 for r in found if r["priced"] and r["id"])
+    lines += ["", f"{len(found)} priced models, dearest output price first; the gateway can serve {served} (callable by id). Models with no price are left out",
+              "(the gateway refuses them unless 'Require pricing data' is off for that provider). ARN-only (imported or provisioned) models are not called by id.",
+              "Use a row as gateway/bedrock/<callable id>; try it with: tech-art-core probe --model gateway/bedrock/<callable id>"]
+    return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0], formatter_class=argparse.RawDescriptionHelpFormatter, epilog="\n".join(__doc__.splitlines()[1:]))
+    parser.add_argument("--geo", default="us", help="inference-profile prefix for your region: us, eu or apac (default us)")
+    parser.add_argument("--images", action="store_true", help="only models that accept image input")
+    parser.add_argument("--grep", metavar="REGEX", help="only rows matching this (maker, name or id)")
+    parser.add_argument("--all", action="store_true", help="include non-text models (embeddings, image generators) and legacy ones")
+    args = parser.parse_args(argv)
+    try:
+        payload = json.load(sys.stdin)
+    except ValueError:
+        print("bedrock-models: stdin is not JSON. Pipe it: aws bedrock list-foundation-models --region R --output json | ...", file=sys.stderr)
+        return 2
+    found = list(rows(payload, args.geo, price_table(), args.images, args.grep, args.all))
+    print(render(found) if found else "no models matched")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -83,15 +83,33 @@ export function App() {
 
   return (
     <div className="pane" data-status={status} onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
-      <Toolbar state={state} status={status} send={send} tab={tab} onTab={openTab} onModelPicked={() => dispatch({ type: "model_picked" })} />
+      <Toolbar
+        state={state}
+        status={status}
+        send={send}
+        tab={tab}
+        onTab={openTab}
+        onModelPicked={() => dispatch({ type: "model_picked" })}
+        onReview={() => {
+          dispatch({ type: "review_requested" });
+          send({ type: "review" });
+        }}
+      />
       {tab === "chat" && (
         <>
           <ChatLog
+            title={state.hello?.title}
+            onDraft={setDraft}
+            reviewing={state.reviewing}
+            onRetry={() => {
+              const lastUser = [...state.entries].reverse().find((e) => e.kind === "user");
+              if (lastUser?.kind === "user") send({ type: "prompt", text: lastUser.text });
+            }}
             entries={state.entries}
             lastTurn={state.lastTurn}
             send={send}
             onUndoTurn={() => {
-              // Revert the whole turn in Houdini (it is one undo group), drop it
+              // Revert the whole turn in the app (it is one undo group), drop it
               // from the log, and hand the message back to the artist to edit.
               send({ type: "undo_turn" });
               const lastUser = [...state.entries].reverse().find((e) => e.kind === "user");

@@ -1,12 +1,49 @@
 name: ci
 
+# Every push to any branch, and every pull request. The check to require before merging is "Tests must pass" (the last job):
+# it fails unless every test job above it succeeded, so branch protection needs only that one name.
 on:
   push:
-    branches: [main]
   pull_request:
 
+# Nothing here writes to the repository or needs a secret. Keep it that way: no pull_request_target, and see CLAUDE.md.
+permissions:
+  contents: read
+
+# A newer push to the same branch makes the older run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
+  secrets:
+    # This repository is public: nothing here may ship a secret or company data. See CLAUDE.md.
+    name: Secrets and company data
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the whole history, not just the tip
+      - run: python3 scripts/check-secrets --all --strict
+      - uses: cachix/install-nix-action@v30
+      - name: gitleaks over every commit
+        run: nix shell nixpkgs#gitleaks -c gitleaks git . --no-banner --redact --log-opts="--all"
+
+  python:
+    name: Python tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      # Everything under core/, houdini/, python/ and tests/ (the root pyproject lists them). The real-Blender and
+      # real-Houdini end-to-end tests and the live-model tests skip themselves when their app or key is absent.
+      - name: pytest
+        run: uv run --project core pytest -q -W ignore::DeprecationWarning
+      - name: The installer's requirement check
+        run: ./install --check
+
+  pane:
+    name: Pane (typecheck, unit and browser tests)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,13 +56,59 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - run: uv sync --project core
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
-      - run: uv run --with pytest pytest -q
-      - run: ./install --check || true
-        # Houdini is not on a GitHub runner; this only proves the script parses and runs.
+      - name: Browser tests against the real core and a fake local model server
+        run: npm run test:e2e
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: playwright-results
           path: test-results/
+
+  # Heavier checks that are useful but not gating (yet): they need Blender from snap and a full Nix build.
+  blender-extension:
+    name: Blender extension builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the extension and its repository index with Blender's own tooling
+        run: |
+          sudo snap install blender --classic
+          python3 scripts/build_blender.py --blender "$(command -v blender || echo /snap/bin/blender)" --out build/blender-repo
+          test -f build/blender-repo/index.json
+      - name: The committed repository index is up to date
+        run: |
+          python3 scripts/build_blender.py --blender /snap/bin/blender --out build/check
+          diff <(python3 -c "import json;d=json.load(open('build/check/index.json'))['data'][0];print(d['version'],d['id'])") \
+               <(python3 -c "import json;d=json.load(open('docs/blender/index.json'))['data'][0];print(d['version'],d['id'])")
+
+  nix:
+    name: Nix package builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v30
+      - run: nix build .#tech-art-core --no-link -L
+      - run: nix flake check --no-build
+
+  tests-must-pass:
+    name: Tests must pass
+    # always(): run even when a needed job failed, so the gate reports failure instead of being skipped (a skipped
+    # required check counts as passing on GitHub, which is exactly what a gate must not do).
+    if: always()
+    needs: [secrets, python, pane]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every test job must have succeeded
+        run: |
+          echo "secrets=${{ needs.secrets.result }}  python=${{ needs.python.result }}  pane=${{ needs.pane.result }}"
+          if [ "${{ needs.secrets.result }}" != "success" ] || [ "${{ needs.python.result }}" != "success" ] || [ "${{ needs.pane.result }}" != "success" ]; then
+            echo "::error::A test job did not succeed. Open it above for the failure."
+            exit 1
+          fi
+
+  # A job that talks to a real model would decrypt the gateway key with the repo's ONE secret, the sops age key, and
+  # should run only on branches we trust (never on code from a fork):
+  #   env: { SOPS_AGE_KEY: "${{ secrets.SOPS_AGE_KEY }}" }
+  #   run: sops exec-env secrets/tech-art-agent.env 'uv run --project core pytest core/tests/live -q'

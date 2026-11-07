@@ -293,7 +293,7 @@ it.
 
 ## Squatch consumer steps (tracked in the Squatch repo, not here)
 
-- SquatchLinux: bump `numtide/llm-agents.nix` so `pi` is ≥ the built-in-MCP
+- the company NixOS config: bump `numtide/llm-agents.nix` so `pi` is ≥ the built-in-MCP
   release; install `houdini-pi` and write its package JSON from the flake.
 - Squatch: fix the four `/opt/hfs22.0` defaults (`art/launch-houdini`,
   `.config/ensure-houdini-mcp`, `.config/houdini-mcp`, devctl's desktop

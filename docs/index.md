@@ -1,7 +1,7 @@
 ---
-title: houdini-pi
+title: mortocs-tech-art-agent
 ---
 
-# houdini-pi
+# mortocs-tech-art-agent
 
-An in-Houdini chat agent built on pi. [Help page](help) · [Source](https://github.com/Mortoc/houdini-pi).
+One agent core for Houdini, Blender and games. [Houdini help](help) · [Blender extension repository](blender/index.json) · [Source](https://github.com/Mortoc/mortocs-tech-art-agent).

@@ -1,0 +1,182 @@
+"""Machine-wide settings, shared by every host: `settings.json` in the state directory."""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+HOME_ENV = "TECH_ART_AGENT_HOME"
+
+
+def state_dir(env: dict[str, str] | None = None, home: Path | None = None) -> Path:
+    """`TECH_ART_AGENT_HOME`, else `~/.tech-art-agent`, else an existing `~/.houdini-pi` (this project's old name)."""
+    env = os.environ if env is None else env
+    if env.get(HOME_ENV):
+        return Path(env[HOME_ENV])
+    home = home or Path.home()
+    current, legacy = home / ".tech-art-agent", home / ".houdini-pi"
+    return legacy if not current.exists() and legacy.exists() else current
+
+
+class Naming(BaseModel):
+    # "cheapest" picks the lowest-priced model the catalog lists; or "provider/model-id".
+    model: str = "cheapest"
+    rename_at_user_messages: list[int] = Field(default_factory=lambda: [1, 5], alias="renameAtUserMessages")
+    model_config = ConfigDict(populate_by_name=True)
+
+
+# mcp-for-blender also exposes tools that send prompts, images and trajectories to third parties (its telemetry
+# backend; 3D-generation and asset services). A studio's scenes and prompts stay on the machine unless someone opts in.
+BLENDER_MCP_THIRD_PARTY_TOOLS = ["record_trajectory_feedback", "disable_telemetry", "generate_3d", "search_assets", "import_asset"]
+
+
+class McpServerSettings(BaseModel):
+    # None: latest. A git ref / version here pins the server (flip on when deploys and evals begin).
+    ref: str | None = None
+    # Re-resolve latest on every start. Off once a ref is pinned.
+    refresh: bool = True
+    # Only these of the server's tools reach the model (empty: all), and never these.
+    include: list[str] = Field(default_factory=list)
+    exclude: list[str] = Field(default_factory=list)
+
+
+class McpSettings(BaseModel):
+    houdini: McpServerSettings = McpServerSettings()
+    blender: McpServerSettings = McpServerSettings(exclude=BLENDER_MCP_THIRD_PARTY_TOOLS)
+
+
+class ExtraMcpServer(BaseModel):
+    """An MCP server the model may use alongside the host's own (Notion, ...). Remote (url) or local (command)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    url: str | None = None
+    command: list[str] | None = None
+    # Environment for a local server: NAME -> literal value, or "$NAME" to pass the core's own env var through
+    # (secrets come in through the service's environmentFile, never this file).
+    env: dict[str, str] = Field(default_factory=dict)
+    # "oauth": sign in once with `tech-art-core auth <name>`; the token is cached in the state directory.
+    auth: Literal["oauth"] | None = None
+    enabled: bool = True
+    # Only these tools / not these tools (names as the server lists them). Empty include: all.
+    include: list[str] = Field(default_factory=list)
+    exclude: list[str] = Field(default_factory=list)
+    # Which hosts get it. Empty: all.
+    hosts: list[str] = Field(default_factory=list)
+
+
+class Provider(BaseModel):
+    """An OpenAI-compatible model server (Ollama, LM Studio, llama.cpp, vLLM, a gateway). Works with no internet."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    base_url: str = Field(alias="baseUrl")
+    # Name of the environment variable holding its API key, if it needs one. Local servers usually don't.
+    api_key_env: str | None = Field(None, alias="apiKeyEnv")
+    # Do its models accept images? The pane only offers models that do, because the agent has to look at renders.
+    vision: bool = True
+    # Models to offer. Empty: ask the server (GET {baseUrl}/models).
+    models: list[str] = Field(default_factory=list)
+
+
+class GatewaySettings(BaseModel):
+    """Pydantic AI Gateway: one key (PYDANTIC_AI_GATEWAY_API_KEY, made in Logfire) for many providers, with spend limits.
+
+    The gateway has no model-list endpoint, so the menu offers the models named here, written `<upstream>/<model>`
+    and used as `gateway/<upstream>/<model>` (pydantic-ai spells it `gateway/<upstream>:<model>`).
+    """
+
+    models: list[str] = Field(
+        default_factory=lambda: [
+            # The gateway's built-in providers. Just Haiku (the agent) and Luna (the cross-family reviewer, and a second agent
+            # to try) for now: both are cheap and see images. Local models (Macs, Strix Halo) come later as `providers`.
+            # To add DeepSeek: set up OpenRouter as a custom provider in Logfire's Gateway settings (docs/help.md), then list
+            # e.g. "chat@openrouter/deepseek/deepseek-v4.1-flash-1017" here (`chat` is the OpenAI-compatible API format).
+            "anthropic/claude-haiku-5-5",
+            "openai/gpt-6-luna",
+        ]
+    )
+    # Do these models accept images? The pane only offers models that do, because the agent has to look at renders.
+    vision: bool = True
+
+
+class ReviewSettings(BaseModel):
+    """The second opinion: a model, preferably from a different family than the one working, reads the conversation and
+    looks for places where the agent and the artist may have understood each other differently."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    enabled: bool = True
+    # Pin the reviewer, "provider/model". None: the first available candidate from a different family than the agent's.
+    # Unpinned: Haiku's work is reviewed by Luna and Luna's by Haiku, so the check is always cross-family.
+    model: str | None = None
+    candidates: list[str] = Field(
+        default_factory=lambda: [
+            "gateway/openai/gpt-6-luna",
+            "gateway/anthropic/claude-haiku-5-5",
+        ]
+    )
+    # Review by itself after every N-th message from the artist. Off: only when asked ("check understanding").
+    auto: bool = False
+    every: int = 1
+
+
+class PaneSettings(BaseModel):
+    software_render: bool = Field(False, alias="softwareRender")
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class Layout(BaseModel):
+    auto_layout: bool = Field(False, alias="autoLayout")
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class Settings(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    default_model: list[str] = Field(
+        default_factory=lambda: [
+            # For now Haiku works and Luna reviews, so the OpenRouter connection is not needed yet. The intended working agent is
+            # DeepSeek's newest Flash through the gateway's OpenRouter endpoint ("gateway/chat@openrouter/deepseek/
+            # deepseek-v4.1-flash-1017", a dated snapshot so that tuning docs and techniques compares like with like); put
+            # it first here once that endpoint exists.
+            "gateway/anthropic/claude-haiku-5-5",
+            "gateway/openai/gpt-6-luna",
+        ],
+        alias="defaultModel",
+    )
+    naming: Naming = Naming()
+    follow_nodes: bool = Field(True, alias="followNodes")
+    layout: Layout = Layout()
+    pane: PaneSettings = PaneSettings()
+    mcp: McpSettings = McpSettings()
+    providers: dict[str, Provider] = Field(default_factory=dict)
+    gateway: GatewaySettings = GatewaySettings()
+    review: ReviewSettings = ReviewSettings()
+    mcp_servers: dict[str, ExtraMcpServer] = Field(
+        default_factory=lambda: {"notion": ExtraMcpServer(url="https://mcp.notion.com/mcp", auth="oauth")},
+        alias="mcpServers",
+    )
+    # Seconds with no app, pane or running turn before the daemon exits. 0: never.
+    idle_timeout: int = Field(600, alias="idleTimeout")
+
+
+def load_settings(file: Path | None = None) -> Settings:
+    """The settings file over the defaults. Missing is fine; a corrupt file is an error, not a silent default."""
+    file = file or state_dir() / "settings.json"
+    try:
+        raw = file.read_text()
+    except FileNotFoundError:
+        return Settings()
+    try:
+        data = json.loads(raw)
+    except ValueError as error:
+        raise ValueError(f"{file} is not valid JSON: {error}") from error
+    if isinstance(data.get("defaultModel"), str):
+        data["defaultModel"] = [data["defaultModel"]]
+    return Settings.model_validate(data)

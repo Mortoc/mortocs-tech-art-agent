@@ -1,4 +1,4 @@
-import type { Answer, HelloState, ModelKey, ModelRef, ServerMessage, SessionRef, ThinkingLevel } from "@houdini-pi/protocol";
+import type { Answer, HelloState, ModelKey, ModelRef, ReviewResult, ServerMessage, SessionRef, ThinkingLevel } from "@houdini-pi/protocol";
 
 export interface ToolCall {
   toolCallId: string;
@@ -14,7 +14,8 @@ export interface ToolCall {
 export type Entry =
   | { kind: "user"; id: number; text: string }
   | { kind: "assistant"; id: number; text: string; thinking: string; tools: ToolCall[]; streaming: boolean }
-  | { kind: "notice"; id: number; text: string; level: "info" | "error"; action?: "reconnect" | "login" };
+  | { kind: "review"; id: number; review: ReviewResult }
+  | { kind: "notice"; id: number; text: string; level: "info" | "error"; action?: "reconnect" | "login" | "unreachable" | "retry" };
 
 export interface PaneState {
   hello: HelloState | undefined;
@@ -38,6 +39,8 @@ export interface PaneState {
   /** What the agent is doing right now, for the activity line. Undefined when idle. */
   activity: string | undefined;
   compaction: { before: number; after: number } | undefined;
+  /** A second opinion has been asked for and has not come back yet. */
+  reviewing: boolean;
 }
 
 export const initialState: PaneState = {
@@ -57,6 +60,7 @@ export const initialState: PaneState = {
   projectMemory: undefined,
   lastTurn: undefined,
   compaction: undefined,
+  reviewing: false,
   activity: undefined,
 };
 
@@ -75,7 +79,7 @@ function updateLastAssistant(entries: Entry[], update: (entry: Extract<Entry, { 
   return [...withOpen.slice(0, -1), update(last)];
 }
 
-export type LocalAction = { type: "drop_last_turn" } | { type: "model_picked" };
+export type LocalAction = { type: "drop_last_turn" } | { type: "model_picked" } | { type: "review_requested" };
 
 export function reduce(state: PaneState, message: ServerMessage | LocalAction): PaneState {
   switch (message.type) {
@@ -154,8 +158,14 @@ export function reduce(state: PaneState, message: ServerMessage | LocalAction): 
       return { ...state, projectMemory: { available: message.available, text: message.text, prevAvailable: message.prevAvailable } };
     case "memory_compacted":
       return { ...state, compaction: { before: message.before, after: message.after } };
+    case "review": {
+      const { type: _type, ...review } = message;
+      return { ...state, reviewing: false, cost: state.cost + review.cost, entries: [...state.entries, { kind: "review", id: nextId++, review }] };
+    }
+    case "review_requested":
+      return { ...state, reviewing: true };
     case "error":
-      return { ...state, entries: [...state.entries, { kind: "notice", id: nextId++, text: message.message, level: "error", ...(message.action ? { action: message.action } : {}) }] };
+      return { ...state, reviewing: false, entries: [...state.entries, { kind: "notice", id: nextId++, text: message.message, level: "error", ...(message.action ? { action: message.action } : {}) }] };
   }
 }
 
@@ -168,7 +178,7 @@ export function toolLabel(toolName: string): string {
   if (toolName === "inspect_cop") return "inspect COP";
   if (toolName === "inspect_viewport") return "inspect viewport";
   if (toolName === "present_answer") return "answer";
-  return toolName.replace(/^mcp__fxhoudini__/, "houdini: ");
+  return toolName;
 }
 
 function toolHint(args: unknown): string {

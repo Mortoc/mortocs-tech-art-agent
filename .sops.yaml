@@ -1,0 +1,15 @@
+# Part of the company sops chain. Recipients are repo data. Any ONE of these keys decrypts.
+# This repo is public: keep hostnames, vault and item names out of this file (they are company data).
+creation_rules:
+  - path_regex: ^secrets/.*\.env$
+    key_groups:
+      - age:
+          # company root (permanent recipient of everything; break-glass)
+          - age1r6t26saxzx5pjelnp4dh6kshs47mpv9qqm2apsq9wfjtp06y5gksvm64p8
+          # company IT role (mints, rotates and re-keys)
+          - age1e5k56pk5r35xdsn43zlxypvjjc0egluam2pllkk334qvuhxdpu5s2gwqhf
+          # a developer machine key: local use, and sops-nix at activation
+          - age1r62lavnuwu58aye7tr8ueqnrq4m9g8ep7wmawxnzasn8g9l693qqsp4gcp
+          # CI (GitHub Actions) for this repo: a child of the chain. Its private half is the repo's ONE GitHub secret
+          # (SOPS_AGE_KEY) and is also kept wrapped to the chain, so the company can always recover or rotate it.
+          - age10kawrmwek88a7gfmjvr9ukwlt2hqk6rg5apvpal6f97r3ggrky6st5zqvz

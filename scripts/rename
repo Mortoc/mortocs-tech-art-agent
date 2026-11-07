@@ -1,0 +1,140 @@
+#!/usr/bin/env python3
+"""Swap private names for their aliases (see CLAUDE.md: this repository is public). Standard library only.
+
+    scripts/rename                    dry run: which publishable files hold a private name (shows ALIASES, not names)
+    scripts/rename --write            replace them in place
+    scripts/rename --check            exit 1 if any private name is found, in file contents or file names
+    scripts/rename --add NAME ALIAS   record a new private name (validated: aliases must be unique and not contain it)
+    scripts/rename --lookup TERM      what does this name / alias stand for?          (local terminal only)
+    scripts/rename --list             the whole table                                  (local terminal only)
+    scripts/rename --reveal FILE|-    FILE with aliases turned back into names, to STDOUT only, for reading
+
+Options: --loose  replace inside identifiers too (case-insensitive), not just whole words.
+
+The table is `.renames` (gitignored, local, copy it between machines by hand); RENAMES_FILE overrides the path.
+"Publishable" = tracked and untracked files git does not ignore. Binary files are skipped.
+Run `scripts/build_blender.py` afterwards if you changed anything under blender/ or python/.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _renames import HEADER, NAME, ROOT, Renames, default_path  # noqa: E402
+
+MAX_BYTES = 2_000_000
+
+
+def publishable() -> list[str]:
+    out = subprocess.run(["git", "ls-files", "-z", "-co", "--exclude-standard"], cwd=ROOT, capture_output=True, text=True, check=True).stdout
+    return [f for f in out.split("\0") if f and f != NAME]
+
+
+def read_text(path: str) -> str | None:
+    try:
+        data = (ROOT / path).read_bytes()
+    except OSError:
+        return None
+    if len(data) > MAX_BYTES or b"\0" in data[:4096]:
+        return None
+    return data.decode("utf-8", "replace")
+
+
+def need_table() -> Renames:
+    table = Renames.load()
+    if table is None:
+        sys.exit(f"rename: no {default_path()} on this machine. Copy your .renames here, or create one with --add.")
+    return table
+
+
+def scan(table: Renames, loose: bool) -> list[tuple[str, int, str]]:
+    """(path, line or 0 for the file name, alias) for everything that needs renaming."""
+    found = []
+    for path in publishable():
+        for _, alias in table.find(path):
+            found.append((path, 0, alias))
+        text = read_text(path)
+        if text is not None:
+            found += [(path, n, alias) for n, alias in table.find(text)]
+    return found
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0], formatter_class=argparse.RawDescriptionHelpFormatter, epilog="\n".join(__doc__.splitlines()[1:]))
+    parser.add_argument("--write", action="store_true")
+    parser.add_argument("--check", action="store_true")
+    parser.add_argument("--loose", action="store_true")
+    parser.add_argument("--add", nargs=2, metavar=("NAME", "ALIAS"))
+    parser.add_argument("--lookup", metavar="TERM")
+    parser.add_argument("--list", action="store_true")
+    parser.add_argument("--reveal", metavar="FILE")
+    args = parser.parse_args(argv)
+
+    if args.add:
+        private, alias = args.add
+        path = default_path()
+        table = Renames.load(path) or Renames([])
+        problem = table.problem_with(private, alias)
+        if problem:
+            print(f"rename: not added: {problem}", file=sys.stderr)
+            return 2
+        new = not path.exists()
+        with open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600), "a", encoding="utf-8") as f:
+            f.write((HEADER if new else "") + f"{private}\t{alias}\n")
+        print(f"added: {private} -> {alias}   (now run `scripts/rename` to see where the name is still written down)")
+        return 0
+
+    table = need_table()
+    if args.list:
+        for p in table.pairs:
+            print(f"{p.private}\t{p.alias}")
+        return 0
+    if args.lookup:
+        hits = table.lookup(args.lookup)
+        for p in hits:
+            print(f"{p.private}  <->  {p.alias}")
+        return 0 if hits else 1
+    if args.reveal:
+        text = sys.stdin.read() if args.reveal == "-" else Path(args.reveal).read_text(encoding="utf-8")
+        sys.stdout.write(table.reveal(text))
+        return 0
+
+    found = scan(table, args.loose)
+    if args.check:
+        for path, line, alias in found:
+            print(f"{path}{':' + str(line) if line else ' (file name)'}: private name (alias: {alias})", file=sys.stderr)
+        return 1 if found else 0
+
+    if not found:
+        print("clean: no private names in publishable files")
+        return 0
+    changed = 0
+    for path in sorted({f[0] for f in found}):
+        text = read_text(path)
+        if text is None:
+            continue
+        new, n = table.sanitize(text, loose=args.loose)
+        if n:
+            changed += 1
+            print(f"{'rewrote' if args.write else 'would rewrite'} {path}: {n} replacement(s)")
+            if args.write:
+                (ROOT / path).write_text(new, encoding="utf-8")
+    for path, line, alias in found:
+        if line == 0:
+            print(f"file NAME holds a private name (alias: {alias}): {path}   -> rename it yourself with `git mv`")
+    leftovers = [f for f in scan(table, args.loose)] if args.write else []
+    if args.write and leftovers:
+        print(f"{len(leftovers)} occurrence(s) remain (inside identifiers or file names): rerun with --loose, or fix by hand.", file=sys.stderr)
+        return 1
+    if not args.write:
+        print("\n(dry run) nothing was changed; add --write to apply.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -176,58 +176,28 @@ def session_tag(path: str) -> dict[str, Any]:
     return {"sessions": sessions}
 
 
-PROJECT_MEMORY_DIR = ".houdini-pi"
-PROJECT_MEMORY_FILE = "memory.md"
-PROJECT_MEMORY_PREV_FILE = "memory.md.prev"
-
-
-def _project_memory_dir() -> Path | None:
-    """The project memory directory under $JOB, or None when $JOB is unset.
-
-    $JOB is the Houdini convention for the project root. When it is unset
-    (a loose hip with no project), project memory is simply unavailable.
-    """
+def _job() -> str | None:
+    """$JOB is the Houdini convention for the project root; unset (a loose hip) means no project memory."""
     hou = _h()
     job = ""
     if hasattr(hou, "text") and hasattr(hou.text, "expandString"):
         job = hou.text.expandString("$JOB")
     if not job or job == "$JOB":
         job = os.environ.get("JOB", "")
-    if not job:
-        return None
-    return Path(job) / PROJECT_MEMORY_DIR
+    return job or None
 
 
 def project_memory_read() -> dict[str, Any]:
-    """Project memory: a markdown file at $JOB/.houdini-pi/memory.md, shared across all hips."""
-    base = _project_memory_dir()
-    if base is None:
-        return {"available": False, "text": "", "prev": None}
-    path = base / PROJECT_MEMORY_FILE
-    try:
-        text = path.read_text()
-    except FileNotFoundError:
-        text = ""
-    prev_path = base / PROJECT_MEMORY_PREV_FILE
-    try:
-        prev = prev_path.read_text()
-    except FileNotFoundError:
-        prev = None
-    return {"available": True, "text": text, "prev": prev}
+    """Project memory, shared across all hips (and with Blender): see tech_art_agent.project_memory."""
+    from tech_art_agent import project_memory
+
+    return project_memory.read(_job())
 
 
 def project_memory_write(text: str, prev: str | None) -> dict[str, Any]:
-    base = _project_memory_dir()
-    if base is None:
-        raise RuntimeError("$JOB is not set; project memory needs a project root")
-    base.mkdir(parents=True, exist_ok=True)
-    (base / PROJECT_MEMORY_FILE).write_text(text)
-    prev_path = base / PROJECT_MEMORY_PREV_FILE
-    if prev:
-        prev_path.write_text(prev)
-    elif prev_path.exists():
-        prev_path.unlink()
-    return {"chars": len(text), "prev": bool(prev)}
+    from tech_art_agent import project_memory
+
+    return project_memory.write(_job(), text, prev)
 
 
 def _is_untitled(hou: Any) -> bool:
@@ -303,13 +273,25 @@ def follow_nodes(paths: list[str]) -> dict[str, Any]:
 PREVIEW_ROP = "houdini_pi_preview"
 
 
+PREVIEW_MAX_AGE_S = 3600
+
+
 def preview_dir():
-    """Where previews land: the system temp dir, and the sidecar deletes each one after reading it."""
+    """Where previews land: the system temp dir. The core only reads them (it may not delete), so this
+    prunes the ones nobody will look at again."""
     import tempfile
+    import time
     from pathlib import Path
 
     out = Path(tempfile.gettempdir()) / "houdini-pi"
     out.mkdir(parents=True, exist_ok=True)
+    cutoff = time.time() - PREVIEW_MAX_AGE_S
+    for old in out.glob("*.png"):
+        try:
+            if old.stat().st_mtime < cutoff:
+                old.unlink()
+        except OSError:
+            pass
     return out
 
 
@@ -378,7 +360,7 @@ def capture_viewport(pane_name: str | None = None) -> dict[str, Any]:
     put there), and dispatch from the main thread deadlocks. It queues the capture for the
     main thread from a worker and then blocks the main thread joining that worker, so
     nothing runs until the join times out (FXHOUDINIMCP_TIMEOUT, 120 s); then the orphaned
-    capture runs anyway with nobody waiting for it. Measured on mortoc-ivy 2026-10-12: the
+    capture runs anyway with nobody waiting for it. Measured on a dev workstation 2026-10-12: the
     viewport froze, the sidecar gave up at 60 s, and a flipbook "Failed" box came after.
 
     Refuses when the viewer draws nodes that failed to cook. A flipbook re-cooks the display

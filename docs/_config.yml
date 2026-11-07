@@ -1,3 +1,3 @@
-title: houdini-pi
+title: mortocs-tech-art-agent
 theme: jekyll-theme-minimal
-exclude: [specs, plans]
+exclude: [specs, plans, manual-e2e.md]

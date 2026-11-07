@@ -19,12 +19,13 @@ const clientMessages: ClientMessage[] = [
   { type: "memory_edit", text: "# memo" },
   { type: "undo_compaction" },
   { type: "rename_session", name: "Env light" },
-  { type: "houdini_action", kind: "parm", value: "/obj/geo1/wire1/radius" },
+  { type: "host_action", kind: "parm", value: "/obj/geo1/wire1/radius" },
+  { type: "review" },
   { type: "undo_turn" },
 ];
 
 const serverMessages: ServerMessage[] = [
-  { type: "hello", sessionId: "s", sessionPath: undefined, model: undefined, thinkingLevel: "off", hip: undefined, sessionName: undefined, isStreaming: false, cost: 0 },
+  { type: "hello", sessionId: "s", sessionPath: undefined, model: undefined, thinkingLevel: "off", host: "houdini", document: undefined, linkScheme: "houdini", title: "Houdini Agent", sessionName: undefined, isStreaming: false, cost: 0 },
   { type: "state", model: undefined, thinkingLevel: "low", isStreaming: true },
   { type: "session_name", name: "Env light" },
   { type: "user_message", text: "hi" },
@@ -42,6 +43,7 @@ const serverMessages: ServerMessage[] = [
   { type: "memory", text: "", prevAvailable: false },
   { type: "memory_compacted", before: 20000, after: 7000 },
   { type: "error", message: "boom", action: "reconnect" },
+  { type: "review", verdict: "check", summary: "s", findings: [{ kind: "ambiguity", severity: "high", turn: 1, userSaid: "make it bigger", agentDid: "x", risk: "y", askInstead: "which?" }], reviewer: "gateway/google/gemini-3.8-flash", reviewerFamily: "google", agentFamily: "openai", differentFamily: true, turns: 1, cost: 0.002 },
   { type: "history", messages: [{ role: "user", text: "hi" }] },
 ];
 

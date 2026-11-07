@@ -7,7 +7,7 @@ interface Props {
   onOpen: () => void;
 }
 
-/** This hip's conversations, newest first. The list lives in the hip, so a Save As keeps it. */
+/** This scene's conversations, newest first. The list lives in the scene file, so a Save As keeps it. */
 export function SessionsTab({ sessions, current, send, onOpen }: Props) {
   return (
     <div className="sessions" data-testid="sessions">
@@ -30,7 +30,7 @@ export function SessionsTab({ sessions, current, send, onOpen }: Props) {
             </li>
           ))}
       </ul>
-      {sessions.length === 0 && <p className="muted">No conversations in this hip yet.</p>}
+      {sessions.length === 0 && <p className="muted">No conversations in this scene yet.</p>}
     </div>
   );
 }

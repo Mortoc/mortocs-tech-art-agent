@@ -40,7 +40,7 @@ describe("the turn footer", () => {
 });
 
 describe("conversation cost", () => {
-  const hello = (cost: number): ServerMessage => ({ type: "hello", sessionId: "s", sessionPath: "/s.jsonl", model: undefined, thinkingLevel: "off", hip: undefined, sessionName: undefined, isStreaming: false, cost });
+  const hello = (cost: number): ServerMessage => ({ type: "hello", sessionId: "s", sessionPath: "/s.jsonl", model: undefined, thinkingLevel: "off", host: "houdini", document: undefined, linkScheme: "houdini", title: "Houdini Agent", sessionName: undefined, isStreaming: false, cost });
 
   it("starts from what the conversation had already cost", () => {
     expect(play([hello(0.25)]).cost).toBe(0.25);
@@ -59,5 +59,36 @@ describe("conversation cost", () => {
     const state = play([hello(0.25), { type: "settled", aborted: false, cost: 0.3, durationMs: 1 }, hello(0)]);
     expect(state.cost).toBe(0);
     expect(state.lastTurn).toBeUndefined();
+  });
+});
+
+describe("an unreachable model server", () => {
+  it("becomes a notice that offers to try again", () => {
+    const next = reduce(initialState, { type: "error", message: "Can't reach your local model server at localhost:11434.", action: "unreachable" });
+    const notice = next.entries.at(-1);
+    expect(notice).toMatchObject({ kind: "notice", level: "error", action: "unreachable" });
+  });
+});
+
+describe("a second opinion", () => {
+  const review: ServerMessage = {
+    type: "review", verdict: "check", summary: "One request was ambiguous.",
+    findings: [{ kind: "ambiguity", severity: "high", turn: 1, userSaid: "make it bigger", agentDid: "scaled by 2", risk: "wrong object?", askInstead: "Which object?" }],
+    reviewer: "gateway/google/gemini-3.8-flash", reviewerFamily: "google", agentFamily: "openai", differentFamily: true, turns: 1, cost: 0.002,
+  };
+
+  it("is pending from the click until the answer arrives, then becomes a card and adds its cost", () => {
+    const asked = reduce(initialState, { type: "review_requested" });
+    expect(asked.reviewing).toBe(true);
+    const done = reduce(asked, review);
+    expect(done.reviewing).toBe(false);
+    expect(done.cost).toBeCloseTo(0.002);
+    expect(done.entries.at(-1)).toMatchObject({ kind: "review", review: { verdict: "check", differentFamily: true } });
+  });
+
+  it("stops waiting if the review fails, and says why", () => {
+    const failed = reduce(reduce(initialState, { type: "review_requested" }), { type: "error", message: "Can't reach the model provider", action: "unreachable" });
+    expect(failed.reviewing).toBe(false);
+    expect(failed.entries.at(-1)).toMatchObject({ kind: "notice", action: "unreachable" });
   });
 });
