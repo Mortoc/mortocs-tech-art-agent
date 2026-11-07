@@ -77,9 +77,9 @@ Two scopes, both shown to the agent every turn:
 {
   "naming": { "model": "cheapest", "renameAtUserMessages": [1, 5] },
   "followNodes": true,
-  "defaultModel": ["gateway/anthropic/claude-haiku-5-5", "gateway/anthropic/claude-sonnet-5-5"],
-  "gateway": { "models": ["anthropic/claude-haiku-5-5", "anthropic/claude-sonnet-5-5", "google/gemini-3.8-flash"] },
-  "review": { "model": "gateway/anthropic/claude-haiku-5-5" },
+  "defaultModel": ["gateway/anthropic/claude-haiku-5-5", "gateway/openai/gpt-6-luna"],
+  "gateway": { "models": ["anthropic/claude-haiku-5-5", "openai/gpt-6-luna"] },
+  "review": { "model": null },
   "providers": { "ollama": { "baseUrl": "http://localhost:11434/v1" } },
   "layout": { "autoLayout": false }
 }
@@ -137,9 +137,9 @@ confirmed, scope drift, words read in another app's sense (artists move between 
 contradict the agent's own summary. Each finding quotes you and gives the single question that would settle it: press
 *answer this* to put that question in the message box. The card says when no other family was available (a weaker check).
 
-`review` in settings: `{"enabled": true, "model": "gateway/anthropic/claude-haiku-5-5", "candidates": ["gateway/google/gemini-3.8-flash", ...], "auto": false, "every": 1}`.
-For now the reviewer is Haiku, the same family as the agent, and the card says so; set `model` to `null` and the first available
-candidate from a different family (Gemini) is used.
+`review` in settings: `{"enabled": true, "model": null, "candidates": ["gateway/openai/gpt-6-luna", "gateway/anthropic/claude-haiku-5-5"], "auto": false, "every": 1}`.
+With `model` unset, the first available candidate from a different family than the agent is the reviewer: Luna reviews Haiku and
+Haiku reviews Luna. Pin `model` to use one reviewer always.
 
 ## When something is wrong
 

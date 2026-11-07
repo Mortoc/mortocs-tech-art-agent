@@ -64,6 +64,17 @@ def test_a_long_conversation_keeps_its_beginning_and_its_end():
     assert turns == 100 and "message number 0 " in text and "message number 99 " in text and "middle of the conversation omitted" in text
 
 
+# The candidate list the family-picking tests were written against (the shipped default is shorter: Luna and Haiku).
+WIDE = ["gateway/google/gemini-3.8-flash", "gateway/openai/gpt-6.1-terra", "gateway/anthropic/claude-haiku-5-5"]
+
+
+def wide_settings(**review) -> Settings:
+    """Settings whose menu holds the WIDE candidates (the shipped menu is only Haiku and Luna)."""
+    settings = Settings(review=ReviewSettings(model=None, candidates=WIDE, **review))
+    settings.gateway.models = ["openai/gpt-6.1-sol", "google/gemini-3.8-flash", "openai/gpt-6.1-terra", "anthropic/claude-haiku-5-5"]
+    return settings
+
+
 def test_families_see_through_gateway_and_openrouter_prefixes():
     assert family_of("gateway/openai/gpt-6.1-sol") == "openai"
     assert family_of("gateway/google/gemini-3.8-flash") == "google"
@@ -75,7 +86,7 @@ def test_families_see_through_gateway_and_openrouter_prefixes():
 
 
 def test_the_reviewer_is_from_another_family_when_one_is_available():
-    settings = ReviewSettings(model=None)  # unpinned: the cross-family rule applies
+    settings = ReviewSettings(model=None, candidates=WIDE)  # unpinned: the cross-family rule applies
     every = {"gateway/google/gemini-3.8-flash", "gateway/openai/gpt-6.1-terra", "gateway/anthropic/claude-haiku-5-5"}
     assert pick_reviewer("gateway/openai/gpt-6.1-sol", settings, every) == ("gateway/google/gemini-3.8-flash", True)
     assert pick_reviewer("gateway/google/gemini-3.8-flash", settings, every) == ("gateway/openai/gpt-6.1-terra", True)
@@ -83,7 +94,7 @@ def test_the_reviewer_is_from_another_family_when_one_is_available():
 
 
 def test_when_every_candidate_shares_the_agents_family_it_says_so():
-    unpinned = ReviewSettings(model=None)
+    unpinned = ReviewSettings(model=None, candidates=WIDE)
     only_openai = {"gateway/openai/gpt-6.1-terra"}
     assert pick_reviewer("gateway/openai/gpt-6.1-sol", unpinned, only_openai) == ("gateway/openai/gpt-6.1-terra", False)
     assert pick_reviewer("local/llava", unpinned, set()) == ("local/llava", False)  # nothing else: the agent's own model
@@ -91,8 +102,10 @@ def test_when_every_candidate_shares_the_agents_family_it_says_so():
         pick_reviewer(None, unpinned, set())
 
 
-def test_for_now_everything_including_the_reviewer_is_haiku_and_the_card_says_it_is_the_weaker_check():
-    assert pick_reviewer("gateway/anthropic/claude-haiku-5-5", ReviewSettings(), set()) == ("gateway/anthropic/claude-haiku-5-5", False)
+def test_the_shipped_defaults_are_haiku_and_luna_each_reviewing_the_other():
+    review, luna, haiku = ReviewSettings(), "gateway/openai/gpt-6-luna", "gateway/anthropic/claude-haiku-5-5"
+    assert pick_reviewer(haiku, review, {luna, haiku}) == (luna, True)
+    assert pick_reviewer(luna, review, {luna, haiku}) == (haiku, True)
 
 
 def test_a_pinned_reviewer_wins_and_is_still_judged_on_family():
@@ -158,7 +171,7 @@ async def make_core(connected, tmp_path, monkeypatch, settings=None, models=None
 
 
 async def test_the_review_flows_from_a_different_family_to_the_pane(connected, tmp_path, monkeypatch):
-    core, session, events, _ = await make_core(connected, tmp_path, monkeypatch, settings=Settings(review=ReviewSettings(model=None)), models={
+    core, session, events, _ = await make_core(connected, tmp_path, monkeypatch, settings=wide_settings(), models={
         "gateway/openai/gpt-6.1-sol": script(("text", "Done: scaled it up.")),
         "gateway/google/gemini-3.8-flash": fn_model(lambda m, i: json.dumps(GOOD)),
     })
@@ -186,7 +199,7 @@ async def test_review_failures_are_explained_in_plain_words(connected, tmp_path,
 
 async def test_automatic_review_runs_after_every_nth_message_when_switched_on(connected, tmp_path, monkeypatch):
     quiet = json.dumps({"verdict": "aligned", "summary": "Nothing to raise.", "findings": []})
-    settings = Settings(review=ReviewSettings(model=None, auto=True, every=2))
+    settings = wide_settings(auto=True, every=2)
     core, session, events, _ = await make_core(connected, tmp_path, monkeypatch, settings=settings, models={
         "gateway/openai/gpt-6.1-sol": script(("text", "ok")), "gateway/google/gemini-3.8-flash": fn_model(lambda m, i: quiet)})
     session.prompt("first"); await session.wait()
@@ -196,8 +209,8 @@ async def test_automatic_review_runs_after_every_nth_message_when_switched_on(co
     assert len(out) == 1 and out[0].verdict == "aligned" and out[0].turns == 2
 
 
-async def test_by_default_one_gateway_key_runs_everything_on_haiku(tmp_path, monkeypatch):
-    """The setup we ship for now: no OpenRouter endpoint needed. The agent, the reviewer and naming are all Haiku."""
+async def test_by_default_one_gateway_key_runs_haiku_and_luna_reviews_it(tmp_path, monkeypatch):
+    """The setup we ship for now: no OpenRouter endpoint needed. Haiku works, Luna (another family) reviews."""
     monkeypatch.setenv("PYDANTIC_AI_GATEWAY_API_KEY", FAKE_KEY)
 
     async def no_catalog():
@@ -207,21 +220,21 @@ async def test_by_default_one_gateway_key_runs_everything_on_haiku(tmp_path, mon
     await core.ensure_default_model()
     available = {f"{m.provider}/{m.id}" for m in await core.all_models()}
     assert core.new_session_model == "gateway/anthropic/claude-haiku-5-5"
-    assert pick_reviewer(core.new_session_model, core.settings.review, available) == ("gateway/anthropic/claude-haiku-5-5", False)
+    assert pick_reviewer(core.new_session_model, core.settings.review, available) == ("gateway/openai/gpt-6-luna", True)
 
 
-async def test_the_intended_setup_once_deepseek_is_connected_is_deepseek_reviewed_by_gemini(tmp_path, monkeypatch):
-    """What a settings file produces after the gateway has an OpenRouter endpoint: DeepSeek first, a Gemini reviewer."""
+async def test_the_intended_setup_once_deepseek_is_connected_is_deepseek_reviewed_by_another_family(tmp_path, monkeypatch):
+    """What a settings file produces after the gateway has an OpenRouter endpoint: DeepSeek first, reviewed by Luna."""
     monkeypatch.setenv("PYDANTIC_AI_GATEWAY_API_KEY", FAKE_KEY)
     deepseek = "gateway/chat@openrouter/deepseek/deepseek-v4.1-flash-1017"
 
     async def no_catalog():
         return []
 
-    settings = Settings(default_model=[deepseek, "gateway/anthropic/claude-haiku-5-5"], review=ReviewSettings(model=None))
+    settings = Settings(default_model=[deepseek, "gateway/anthropic/claude-haiku-5-5"])
     settings.gateway.models.insert(0, "chat@openrouter/deepseek/deepseek-v4.1-flash-1017")
     core = Core(tmp_path, settings, catalog=no_catalog)
     await core.ensure_default_model()
     assert core.new_session_model == deepseek and family_of(deepseek) == "deepseek"
     available = {f"{m.provider}/{m.id}" for m in await core.all_models()}
-    assert pick_reviewer(deepseek, settings.review, available) == ("gateway/google/gemini-3.8-flash", True)
+    assert pick_reviewer(deepseek, settings.review, available) == ("gateway/openai/gpt-6-luna", True)

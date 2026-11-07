@@ -27,7 +27,7 @@ pytestmark = pytest.mark.skipif(not os.environ.get("PYDANTIC_AI_GATEWAY_API_KEY"
 # that endpoint is set up in Logfire; its tests then need no other change.
 AGENT = "gateway/anthropic/claude-haiku-5-5"
 DEEPSEEK = "gateway/chat@openrouter/deepseek/deepseek-v4.1-flash-1017"
-FAMILIES = [AGENT, "gateway/anthropic/claude-sonnet-5-5", "gateway/google/gemini-3.8-flash", "gateway/openai/gpt-6.1-terra"]
+FAMILIES = [AGENT, "gateway/openai/gpt-6-luna"]
 
 
 @pytest.mark.parametrize("key", FAMILIES)

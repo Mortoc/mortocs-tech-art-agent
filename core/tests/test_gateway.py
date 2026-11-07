@@ -51,7 +51,7 @@ def test_the_menu_offers_gateway_models_only_when_there_is_a_gateway_key():
     assert [(m.provider, m.id) for m in listed][0] == ("gateway", "anthropic/claude-haiku-5-5")  # Haiku first, for now
     from tech_art_core.review import family_of
 
-    assert {family_of(f"gateway/{m.id}") for m in listed} == {"google", "openai", "anthropic"}  # three families on offer; DeepSeek joins when its endpoint exists
+    assert {family_of(f"gateway/{m.id}") for m in listed} == {"openai", "anthropic"}  # two families on offer, so the reviewer is always cross-family
     assert all(m.vision for m in listed)
 
 
