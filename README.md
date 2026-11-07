@@ -80,12 +80,17 @@ their own and pick up the conversation where it was.
 
 ## Blender
 
-1. Preferences ▸ Get Extensions ▸ Repositories ▸ **+** ▸ Add Remote Repository:
-   `https://mortoc.github.io/mortocs-tech-art-agent/blender/index.json`
-2. Install **Tech Art Agent**, and the add-on it drives: `uvx mcp-for-blender install-addon`.
-3. 3D Viewport sidebar (N) ▸ **Agent** ▸ **Open Agent**.
+`./install --blender` does all of it: it installs the **Tech Art Agent** extension from this checkout's built zip (so it works
+on any branch, offline), installs the `mcp-for-blender` add-on that supplies the agent's Blender tools and **enables** it
+(its server starts with Blender). Then: 3D Viewport sidebar (N) ▸ **Agent** ▸ **Open Agent**.
 
-After changing `blender/` or `python/`: `scripts/build_blender.py` rebuilds the repository under `docs/blender/`.
+For updates without a checkout: Preferences ▸ Get Extensions ▸ Repositories ▸ **+** ▸ Add Remote Repository,
+`https://mortoc.github.io/mortocs-tech-art-agent/blender/index.json` (the repository is served by GitHub Pages from `main`, so
+it has the extension once a change is merged). After changing `blender/` or `python/`: `scripts/build_blender.py`.
+
+The agent is given four of the add-on's tools (`execute_blender_code`, `get_scene_info`, `get_addon_status`, `look`). The other
+five send data to third parties (its telemetry backend, 3D-generation and asset services) and are excluded; opt in with
+`mcp.blender.exclude` in settings. Telemetry is switched off in the add-on's server regardless.
 
 Not yet in Blender: *Undo turn* (Blender gives no way to find where a turn began in its undo stack).
 

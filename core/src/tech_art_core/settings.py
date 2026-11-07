@@ -30,16 +30,24 @@ class Naming(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+# mcp-for-blender also exposes tools that send prompts, images and trajectories to third parties (its telemetry
+# backend; 3D-generation and asset services). A studio's scenes and prompts stay on the machine unless someone opts in.
+BLENDER_MCP_THIRD_PARTY_TOOLS = ["record_trajectory_feedback", "disable_telemetry", "generate_3d", "search_assets", "import_asset"]
+
+
 class McpServerSettings(BaseModel):
     # None: latest. A git ref / version here pins the server (flip on when deploys and evals begin).
     ref: str | None = None
     # Re-resolve latest on every start. Off once a ref is pinned.
     refresh: bool = True
+    # Only these of the server's tools reach the model (empty: all), and never these.
+    include: list[str] = Field(default_factory=list)
+    exclude: list[str] = Field(default_factory=list)
 
 
 class McpSettings(BaseModel):
     houdini: McpServerSettings = McpServerSettings()
-    blender: McpServerSettings = McpServerSettings()
+    blender: McpServerSettings = McpServerSettings(exclude=BLENDER_MCP_THIRD_PARTY_TOOLS)
 
 
 class ExtraMcpServer(BaseModel):

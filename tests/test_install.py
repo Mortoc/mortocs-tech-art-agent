@@ -165,3 +165,17 @@ def test_the_blender_extension_is_installed_from_the_checkouts_zip_so_a_branch_c
     assert "--enable" in argv and argv[argv.index("--repo") + 1] == "user_default" and argv[-1].endswith("tech_art_agent-0.2.0.zip")
     assert m.install_blender_extension(tmp_path, blender="/usr/bin/blender", runner=lambda a: subprocess.CompletedProcess(a, 1)) is None  # a failed install is reported, not hidden
     assert m.install_blender_extension(tmp_path / "empty", blender="/usr/bin/blender", runner=runner) is None  # no zip: skipped
+
+
+def test_the_mcp_addon_is_enabled_by_name_through_blenders_own_api():
+    m = load()
+    seen = {}
+
+    def runner(argv):
+        seen["argv"] = argv
+        return subprocess.CompletedProcess(argv, 0)
+
+    assert m.enable_blender_addon("blender_mcp", blender="/usr/bin/blender", runner=runner) is True
+    expr = seen["argv"][seen["argv"].index("--python-expr") + 1]
+    assert "addon_enable(module='blender_mcp')" in expr and "save_userpref" in expr  # enabled, and remembered across restarts
+    assert m.enable_blender_addon("blender_mcp", blender="/usr/bin/blender", runner=lambda a: subprocess.CompletedProcess(a, 1)) is False

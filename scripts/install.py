@@ -161,6 +161,18 @@ def install_blender_extension(root: Path, blender: str | None = None, runner=sub
     return zip_file if runner(argv).returncode == 0 else None
 
 
+def enable_blender_addon(module: str = "blender_mcp", blender: str | None = None, runner=subprocess.run) -> bool:
+    """Enable a legacy add-on by its module name and save Blender's preferences.
+
+    `mcp-for-blender install-addon` only copies the file ("disable then enable it in Preferences"); its `setup` command would
+    enable it too, but also rewrites the config of every AI client it finds, which we do not want."""
+    blender = blender or shutil.which("blender")
+    if blender is None:
+        return False
+    expr = f"import bpy; bpy.ops.preferences.addon_enable(module={module!r}); bpy.ops.wm.save_userpref()"
+    return runner([blender, "--background", "--python-expr", expr]).returncode == 0
+
+
 def enable_git_hooks(root: Path) -> bool:
     """Point this checkout's git at .githooks, whose pre-commit refuses secrets and company data (the repo is public)."""
     if not (root / ".git").exists() or not (root / ".githooks" / "pre-commit").exists():
@@ -213,7 +225,11 @@ def main(argv: list[str] | None = None) -> int:
             print("[install] could not install the Tech Art Agent extension into Blender; see above.")
         print("[install] uvx mcp-for-blender install-addon")
         if subprocess.run([uvx, "mcp-for-blender", "install-addon"]).returncode != 0:
-            print("[install] could not install the mcp-for-blender add-on; run `uvx mcp-for-blender setup` yourself.")
+            print("[install] could not install the mcp-for-blender add-on; install it from its own instructions.")
+        elif enable_blender_addon():
+            print("[install] enabled the MCP for Blender add-on (its server starts with Blender)")
+        else:
+            print("[install] installed the MCP for Blender add-on but could not enable it: Preferences > Add-ons > enable 'MCP for Blender'")
         print(f"[install] For updates, Blender: Preferences > Get Extensions > Repositories > + > Add Remote Repository:\n[install]   {BLENDER_REPO_URL}")
     print("[install] done. Start the core with `cd core && uv run tech-art-core`, or just open Houdini/Blender: they start it.")
     return 0

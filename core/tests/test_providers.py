@@ -44,3 +44,33 @@ def test_the_blender_tool_server_is_never_allowed_to_send_telemetry_off_the_mach
     for switch in ("DISABLE_TELEMETRY", "BLENDER_MCP_DISABLE_TELEMETRY", "MCP_DISABLE_TELEMETRY"):
         assert env[switch] == "true"
     assert not any("TELEMETRY" in key for key in mcp_env(HOUDINI, None, Settings()))
+
+
+def test_blenders_third_party_tools_are_off_unless_someone_opts_in():
+    from tech_art_core.settings import BLENDER_MCP_THIRD_PARTY_TOOLS
+
+    s = Settings()
+    assert {"record_trajectory_feedback", "generate_3d", "search_assets", "import_asset", "disable_telemetry"} <= set(s.mcp.blender.exclude)
+    assert s.mcp.blender.exclude == BLENDER_MCP_THIRD_PARTY_TOOLS and s.mcp.houdini.exclude == []
+
+
+async def test_excluded_tools_never_reach_the_model_but_the_rest_do():
+    from pydantic_ai import FilteredToolset
+
+    from tech_art_core.providers import tool_filter
+    from tech_art_core.settings import McpServerSettings
+
+    server = FastMCP("blender-like")
+
+    @server.tool
+    def get_scene_info() -> str:
+        return "s"
+
+    @server.tool
+    def generate_3d() -> str:
+        return "uploads your prompt somewhere"
+
+    pin = McpServerSettings(exclude=["generate_3d"])
+    model = TestModel(call_tools=[])
+    await Agent(model, toolsets=[FilteredToolset(MCPToolset(server), tool_filter(pin))]).run("hi")
+    assert {t.name for t in model.last_model_request_parameters.function_tools} == {"get_scene_info"}

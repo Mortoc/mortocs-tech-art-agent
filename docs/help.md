@@ -91,6 +91,14 @@ need no internet.
 
 `layout.autoLayout` sets `FXHOUDINIMCP_AUTO_LAYOUT` for the bridge. **Off** (default): freshly-created nodes are placed beside their inputs, but existing node positions never move. **On**: `create_node` re-lays-out the entire network (`layoutChildren()` on all children), and the `layout_children` tool becomes callable. Also settable with `HOUDINI_PI_AUTO_LAYOUT=1` in the environment.
 
+## Blender's tools
+
+Blender's tools come from the `mcp-for-blender` add-on (installed and enabled by `./install --blender`). The agent gets
+`execute_blender_code`, `get_scene_info`, `get_addon_status` and `look`. The add-on's other tools are excluded by default
+because they send your prompts, images or trajectories to third-party services (its telemetry backend, 3D-generation and
+asset libraries): `record_trajectory_feedback`, `disable_telemetry`, `generate_3d`, `search_assets`, `import_asset`. To allow
+one, remove it from `mcp.blender.exclude` in settings; to allow only certain tools, use `mcp.blender.include`.
+
 ## Setting up the gateway (once)
 
 The agent talks to models only through the [Pydantic AI Gateway](https://pydantic.dev/docs/ai/overview/gateway/).

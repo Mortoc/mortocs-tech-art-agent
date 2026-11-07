@@ -205,5 +205,11 @@ def mcp_toolsets(profile: HostProfile, info: ClientInfo | None, settings: Settin
     transport = StdioTransport(command=argv[0], args=argv[1:], env={**os.environ, **mcp_env(profile, info, settings)})
     from .settings import state_dir
 
-    host = PreparedToolset(MCPToolset(Client(transport), id=f"{profile.kind}-mcp"), defer_all_but(profile.direct_tools))
+    pin = profile.mcp_pin(settings)
+    server = MCPToolset(Client(transport), id=f"{profile.kind}-mcp")
+    if pin.include or pin.exclude:
+        from pydantic_ai import FilteredToolset
+
+        server = FilteredToolset(server, tool_filter(pin))
+    host = PreparedToolset(server, defer_all_but(profile.direct_tools))
     return [OptionalToolset.wrap(host, f"The {profile.title} tool server", notify)] + extra_toolsets(profile.kind, settings, state or state_dir(), notify=notify)
